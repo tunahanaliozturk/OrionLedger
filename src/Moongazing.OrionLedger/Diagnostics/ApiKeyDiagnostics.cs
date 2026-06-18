@@ -17,7 +17,7 @@ public sealed class ApiKeyDiagnostics : IDisposable
     /// <summary>Create the meter and its instruments.</summary>
     public ApiKeyDiagnostics()
     {
-        meter = new Meter(MeterName, "0.1.0");
+        meter = new Meter(MeterName, "0.2.0");
 
         Issued = meter.CreateCounter<long>(
             "orionledger.keys.issued",
@@ -28,12 +28,17 @@ public sealed class ApiKeyDiagnostics : IDisposable
             "orionledger.verifications",
             unit: "{verification}",
             description: "Key verifications, tagged status "
-                + "(valid/malformed/not_found/expired/revoked/missing_scope).");
+                + "(valid/malformed/not_found/expired/revoked/retired/missing_scope).");
 
         Revoked = meter.CreateCounter<long>(
             "orionledger.keys.revoked",
             unit: "{key}",
-            description: "API keys revoked.");
+            description: "API keys revoked, including keys swept by bulk revocation.");
+
+        Rotated = meter.CreateCounter<long>(
+            "orionledger.keys.rotated",
+            unit: "{key}",
+            description: "API keys rotated (a successor key was issued for an existing key).");
     }
 
     /// <summary>Counts issued keys.</summary>
@@ -42,8 +47,11 @@ public sealed class ApiKeyDiagnostics : IDisposable
     /// <summary>Counts verifications by status.</summary>
     public Counter<long> Verifications { get; }
 
-    /// <summary>Counts revocations.</summary>
+    /// <summary>Counts revocations, including keys swept by bulk revocation.</summary>
     public Counter<long> Revoked { get; }
+
+    /// <summary>Counts rotations (each rotation issues one successor key).</summary>
+    public Counter<long> Rotated { get; }
 
     /// <summary>Record a verification outcome.</summary>
     /// <param name="status">The status tag value.</param>
