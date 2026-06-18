@@ -37,8 +37,9 @@ public interface IApiKeyStore
     /// This is a default interface method so existing stores written against 0.1.0 keep compiling.
     /// The default throws <see cref="NotSupportedException"/>: a store must override it to support
     /// <see cref="IApiKeyService.RevokeAllForSubjectAsync"/>. The built-in
-    /// <see cref="InMemoryApiKeyStore"/> implements it. Subject matching is ordinal and case
-    /// sensitive; a null or empty subject yields an empty result.
+    /// <see cref="InMemoryApiKeyStore"/> implements it. Implementations should match the subject
+    /// ordinally and case sensitively and return an empty result for a null or empty subject; this
+    /// guidance applies to overrides, not to the throwing default above.
     /// </remarks>
     /// <param name="subject">The owner or subject to match.</param>
     /// <param name="cancellationToken">Cancels the operation.</param>

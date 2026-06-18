@@ -202,7 +202,7 @@ public sealed class ApiKeyService : IApiKeyService
         var revoked = 0;
         foreach (var record in records)
         {
-            if (record.RevokedAt is not null)
+            if (!IsActive(record))
             {
                 continue;
             }
@@ -212,6 +212,16 @@ public sealed class ApiKeyService : IApiKeyService
         }
 
         return revoked;
+    }
+
+    // An already-inactive key (revoked, rotation-retired, or expired) is left untouched so bulk
+    // revocation only ends *active* keys and never rewrites the historical outcome of an inactive one.
+    private bool IsActive(ApiKeyRecord record)
+    {
+        var current = now();
+        return record.RevokedAt is null
+            && (record.RetiresAt is not { } retiresAt || retiresAt > current)
+            && (record.ExpiresAt is not { } expiresAt || expiresAt > current);
     }
 
     private async Task RevokeRecordAsync(ApiKeyRecord record, CancellationToken cancellationToken)

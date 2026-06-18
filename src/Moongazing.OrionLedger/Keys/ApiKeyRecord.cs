@@ -42,8 +42,11 @@ public sealed class ApiKeyRecord
     public DateTimeOffset? LastUsedAt { get; set; }
 
     /// <summary>
-    /// How many times this key has been successfully verified. Incremented on each valid
-    /// verification alongside <see cref="LastUsedAt"/>. Zero until first use.
+    /// Approximately how many times this key has been successfully verified. Incremented on each
+    /// valid verification alongside <see cref="LastUsedAt"/>; zero until first use. This is a
+    /// best-effort usage signal, not an exact ledger: concurrent verifications of the same key may
+    /// race on the non-atomic increment and lose counts. A store needing an exact total should
+    /// compute it durably (for example an atomic database increment).
     /// </summary>
     public long LastUsedCount { get; set; }
 
