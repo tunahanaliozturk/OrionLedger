@@ -13,6 +13,13 @@ public sealed class ApiKeyRecord
     /// <summary>A human-recognisable label supplied at issuance (for example a tenant or app name).</summary>
     public required string Name { get; init; }
 
+    /// <summary>
+    /// The owner or subject this key belongs to (for example a user id, tenant id, or service
+    /// principal), or null if none was supplied. Keys are grouped by subject for bulk operations
+    /// such as <see cref="IApiKeyService.RevokeAllForSubjectAsync"/>.
+    /// </summary>
+    public string? Subject { get; init; }
+
     /// <summary>The non-secret display prefix of the token (for example <c>ork_AbCd12Ef</c>).</summary>
     public required string DisplayPrefix { get; init; }
 
@@ -33,4 +40,32 @@ public sealed class ApiKeyRecord
 
     /// <summary>When the key was last successfully verified, or null if never used.</summary>
     public DateTimeOffset? LastUsedAt { get; set; }
+
+    /// <summary>
+    /// Approximately how many times this key has been successfully verified. Incremented on each
+    /// valid verification alongside <see cref="LastUsedAt"/>; zero until first use. This is a
+    /// best-effort usage signal, not an exact ledger: concurrent verifications of the same key may
+    /// race on the non-atomic increment and lose counts. A store needing an exact total should
+    /// compute it durably (for example an atomic database increment).
+    /// </summary>
+    public long LastUsedCount { get; set; }
+
+    /// <summary>
+    /// When this key was superseded by a rotation, or null if it has not been rotated. Set together
+    /// with <see cref="SupersededById"/> and (when a grace window was requested) <see cref="RetiresAt"/>.
+    /// </summary>
+    public DateTimeOffset? SupersededAt { get; set; }
+
+    /// <summary>
+    /// The id of the successor key issued when this key was rotated, or null if it has not been
+    /// rotated. The successor is an independent key with its own secret.
+    /// </summary>
+    public string? SupersededById { get; set; }
+
+    /// <summary>
+    /// When a superseded key stops verifying. During rotation with a grace window, the old key keeps
+    /// verifying until this instant and resolves as retired at or after it. Null when the key was not
+    /// rotated, or was rotated with no grace (in which case it is revoked immediately instead).
+    /// </summary>
+    public DateTimeOffset? RetiresAt { get; set; }
 }

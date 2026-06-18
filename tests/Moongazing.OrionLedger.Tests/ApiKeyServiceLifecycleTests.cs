@@ -451,6 +451,45 @@ public sealed class ApiKeyServiceLifecycleTests
         await Assert.ThrowsAnyAsync<ArgumentException>(() => f.Service.RevokeAsync(id!));
     }
 
+    // ---- RevokeAllForSubject skips inactive keys -------------------------------------------
+
+    [Fact]
+    public async Task RevokeAllForSubject_skips_expired_and_already_revoked_keys()
+    {
+        using var f = new Fixture();
+        var active = await f.Service.IssueAsync("a-key", subject: "acme");
+        var expiring = await f.Service.IssueAsync("b-key", subject: "acme", expiresAt: f.Clock.AddMinutes(1));
+        var revoked = await f.Service.IssueAsync("c-key", subject: "acme");
+        await f.Service.RevokeAsync(revoked.Record.Id);
+
+        f.Clock = f.Clock.AddMinutes(2); // 'expiring' is now past its expiry, but RevokedAt is still null.
+
+        var count = await f.Service.RevokeAllForSubjectAsync("acme");
+
+        // Only the still-active key is newly revoked; the expired and already-revoked ones are skipped.
+        Assert.Equal(1, count);
+        Assert.Equal(ApiKeyStatus.Revoked, (await f.Service.VerifyAsync(active.Token)).Status);
+        // The expired key keeps reporting Expired rather than being rewritten to Revoked.
+        Assert.Equal(ApiKeyStatus.Expired, (await f.Service.VerifyAsync(expiring.Token)).Status);
+    }
+
+    [Fact]
+    public async Task RevokeAllForSubject_skips_a_retired_predecessor()
+    {
+        using var f = new Fixture();
+        var issued = await f.Service.IssueAsync("rotating", subject: "acme");
+        var rotation = await f.Service.RotateAsync(issued.Record.Id, grace: TimeSpan.FromMinutes(5));
+        Assert.NotNull(rotation);
+
+        f.Clock = f.Clock.AddMinutes(10); // The predecessor's grace window has elapsed: it is now retired.
+
+        var count = await f.Service.RevokeAllForSubjectAsync("acme");
+
+        // Only the active successor is revoked; the retired predecessor is left as-is.
+        Assert.Equal(1, count);
+        Assert.Equal(ApiKeyStatus.Retired, (await f.Service.VerifyAsync(issued.Token)).Status);
+    }
+
     // ---- Cancellation ----------------------------------------------------------------------
 
     [Fact]

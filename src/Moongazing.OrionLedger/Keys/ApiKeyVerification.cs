@@ -18,6 +18,12 @@ public enum ApiKeyStatus
     /// <summary>The key exists but was revoked.</summary>
     Revoked,
 
+    /// <summary>
+    /// The key was rotated and its grace window has elapsed, so it is retired and no longer
+    /// verifies. Distinct from <see cref="Revoked"/>, which is an immediate manual action.
+    /// </summary>
+    Retired,
+
     /// <summary>The key is otherwise valid but lacks a scope that was required.</summary>
     MissingScope,
 }
@@ -40,7 +46,8 @@ public sealed class ApiKeyVerification
     /// <summary>
     /// The matched record, present whenever the token resolved to a known key (status
     /// <see cref="ApiKeyStatus.Valid"/>, <see cref="ApiKeyStatus.Expired"/>,
-    /// <see cref="ApiKeyStatus.Revoked"/>, or <see cref="ApiKeyStatus.MissingScope"/>).
+    /// <see cref="ApiKeyStatus.Revoked"/>, <see cref="ApiKeyStatus.Retired"/>, or
+    /// <see cref="ApiKeyStatus.MissingScope"/>).
     /// </summary>
     public ApiKeyRecord? Record { get; }
 
@@ -56,6 +63,8 @@ public sealed class ApiKeyVerification
     internal static ApiKeyVerification Expired(ApiKeyRecord record) => new(ApiKeyStatus.Expired, record);
 
     internal static ApiKeyVerification Revoked(ApiKeyRecord record) => new(ApiKeyStatus.Revoked, record);
+
+    internal static ApiKeyVerification Retired(ApiKeyRecord record) => new(ApiKeyStatus.Retired, record);
 
     internal static ApiKeyVerification MissingScope(ApiKeyRecord record) => new(ApiKeyStatus.MissingScope, record);
 }

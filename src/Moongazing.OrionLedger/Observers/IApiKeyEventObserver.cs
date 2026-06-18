@@ -17,9 +17,25 @@ public interface IApiKeyEventObserver
     /// <param name="verification">The verification outcome.</param>
     void OnVerified(ApiKeyVerification verification);
 
-    /// <summary>Called after a key is revoked.</summary>
+    /// <summary>
+    /// Called after a key is revoked, including once per key swept by bulk revocation.
+    /// </summary>
     /// <param name="record">The revoked record.</param>
     void OnRevoked(ApiKeyRecord record);
+
+    /// <summary>
+    /// Called after a key is rotated. The predecessor's <see cref="ApiKeyRecord.SupersededById"/>
+    /// links to the successor, whose record is supplied here.
+    /// </summary>
+    /// <remarks>
+    /// A default interface method so observers written against 0.1.0 keep compiling and silently
+    /// ignore rotation. Override it to audit rotations.
+    /// </remarks>
+    /// <param name="predecessor">The rotated key, now superseded.</param>
+    /// <param name="successor">The freshly issued successor key.</param>
+    void OnRotated(ApiKeyRecord predecessor, ApiKeyRecord successor)
+    {
+    }
 }
 
 /// <summary>A no-op observer used when the consumer registers none.</summary>

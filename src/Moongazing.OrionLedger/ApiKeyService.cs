@@ -59,27 +59,47 @@ public sealed class ApiKeyService : IApiKeyService
     }
 
     /// <inheritdoc />
-    public async Task<IssuedApiKey> IssueAsync(
+    public Task<IssuedApiKey> IssueAsync(
         string name,
         IEnumerable<string>? scopes = null,
         DateTimeOffset? expiresAt = null,
+        string? subject = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrEmpty(name);
 
+        return IssueCoreAsync(
+            name,
+            subject,
+            scopes is null
+                ? new HashSet<string>(StringComparer.Ordinal)
+                : new HashSet<string>(scopes, StringComparer.Ordinal),
+            expiresAt,
+            applyDefaultLifetime: true,
+            cancellationToken);
+    }
+
+    private async Task<IssuedApiKey> IssueCoreAsync(
+        string name,
+        string? subject,
+        IReadOnlySet<string> scopes,
+        DateTimeOffset? expiresAt,
+        bool applyDefaultLifetime,
+        CancellationToken cancellationToken)
+    {
         var token = Keys.ApiKeyGenerator.Generate(options.Prefix, options.SecretByteLength);
         var createdAt = now();
         var record = new ApiKeyRecord
         {
             Id = newId(),
             Name = name,
+            Subject = subject,
             DisplayPrefix = Keys.ApiKeyGenerator.DisplayPrefix(token),
             Hash = ApiKeyHasher.Hash(token),
-            Scopes = scopes is null
-                ? new HashSet<string>(StringComparer.Ordinal)
-                : new HashSet<string>(scopes, StringComparer.Ordinal),
+            Scopes = scopes,
             CreatedAt = createdAt,
-            ExpiresAt = expiresAt ?? (options.DefaultLifetime is { } life ? createdAt + life : null),
+            ExpiresAt = expiresAt
+                ?? (applyDefaultLifetime && options.DefaultLifetime is { } life ? createdAt + life : null),
         };
 
         await store.AddAsync(record, cancellationToken).ConfigureAwait(false);
@@ -112,11 +132,104 @@ public sealed class ApiKeyService : IApiKeyService
             return false;
         }
 
+        await RevokeRecordAsync(record, cancellationToken).ConfigureAwait(false);
+        return true;
+    }
+
+    /// <inheritdoc />
+    public async Task<KeyRotation?> RotateAsync(
+        string id,
+        TimeSpan? grace = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(id);
+        if (grace is { } g && g < TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(grace), grace, "Grace must not be negative.");
+        }
+
+        var predecessor = await store.FindByIdAsync(id, cancellationToken).ConfigureAwait(false);
+
+        // Only an active, unexpired, not-yet-rotated key can be rotated. Rotating anything else is a
+        // no-op so a caller cannot fork a chain off a dead key or rotate the same key twice.
+        if (predecessor is null
+            || predecessor.RevokedAt is not null
+            || predecessor.SupersededById is not null
+            || (predecessor.ExpiresAt is { } expiresAt && expiresAt <= now()))
+        {
+            return null;
+        }
+
+        // The successor inherits identity and grant: same name, subject, scopes, and (absolute)
+        // expiry. Default lifetime is not re-applied, so a non-expiring key stays non-expiring.
+        var successor = await IssueCoreAsync(
+            predecessor.Name,
+            predecessor.Subject,
+            predecessor.Scopes,
+            predecessor.ExpiresAt,
+            applyDefaultLifetime: false,
+            cancellationToken).ConfigureAwait(false);
+
+        var rotatedAt = now();
+        predecessor.SupersededAt = rotatedAt;
+        predecessor.SupersededById = successor.Record.Id;
+
+        if (grace is { } window && window > TimeSpan.Zero)
+        {
+            // Grace window: the old key keeps verifying until it retires.
+            predecessor.RetiresAt = rotatedAt + window;
+        }
+        else
+        {
+            // No grace: retire immediately by revoking the predecessor now.
+            predecessor.RevokedAt = rotatedAt;
+        }
+
+        await store.UpdateAsync(predecessor, cancellationToken).ConfigureAwait(false);
+        diagnostics.Rotated.Add(1);
+        SafeObserve(() => observer.OnRotated(predecessor, successor.Record));
+
+        return new KeyRotation(successor, predecessor);
+    }
+
+    /// <inheritdoc />
+    public async Task<int> RevokeAllForSubjectAsync(string subject, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(subject);
+
+        var records = await store.FindBySubjectAsync(subject, cancellationToken).ConfigureAwait(false);
+
+        var revoked = 0;
+        foreach (var record in records)
+        {
+            if (!IsActive(record))
+            {
+                continue;
+            }
+
+            await RevokeRecordAsync(record, cancellationToken).ConfigureAwait(false);
+            revoked++;
+        }
+
+        return revoked;
+    }
+
+    // An already-inactive key (revoked, rotation-retired, or expired) is left untouched so bulk
+    // revocation only ends *active* keys and never rewrites the historical outcome of an inactive one.
+    private bool IsActive(ApiKeyRecord record)
+    {
+        var current = now();
+        return record.RevokedAt is null
+            && (record.RetiresAt is not { } retiresAt || retiresAt > current)
+            && (record.ExpiresAt is not { } expiresAt || expiresAt > current);
+    }
+
+    private async Task RevokeRecordAsync(ApiKeyRecord record, CancellationToken cancellationToken)
+    {
         record.RevokedAt = now();
         await store.UpdateAsync(record, cancellationToken).ConfigureAwait(false);
         diagnostics.Revoked.Add(1);
         SafeObserve(() => observer.OnRevoked(record));
-        return true;
     }
 
     private async Task<ApiKeyVerification> ResolveAsync(string? token, string? requiredScope, CancellationToken cancellationToken)
@@ -137,6 +250,13 @@ public sealed class ApiKeyService : IApiKeyService
             return ApiKeyVerification.Revoked(record);
         }
 
+        // A rotated key with an elapsed grace window is retired. Checked before expiry so a key that
+        // is both retired and past its (inherited) expiry reports the rotation outcome.
+        if (record.RetiresAt is { } retiresAt && retiresAt <= now())
+        {
+            return ApiKeyVerification.Retired(record);
+        }
+
         if (record.ExpiresAt is { } expiresAt && expiresAt <= now())
         {
             return ApiKeyVerification.Expired(record);
@@ -148,6 +268,7 @@ public sealed class ApiKeyService : IApiKeyService
         }
 
         record.LastUsedAt = now();
+        record.LastUsedCount++;
         await store.UpdateAsync(record, cancellationToken).ConfigureAwait(false);
         return ApiKeyVerification.Valid(record);
     }
@@ -159,6 +280,7 @@ public sealed class ApiKeyService : IApiKeyService
         ApiKeyStatus.NotFound => "not_found",
         ApiKeyStatus.Expired => "expired",
         ApiKeyStatus.Revoked => "revoked",
+        ApiKeyStatus.Retired => "retired",
         ApiKeyStatus.MissingScope => "missing_scope",
         _ => "unknown",
     };

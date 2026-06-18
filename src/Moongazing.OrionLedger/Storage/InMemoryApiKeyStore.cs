@@ -47,4 +47,25 @@ public sealed class InMemoryApiKeyStore : IApiKeyStore
         byId[record.Id] = record;
         return Task.CompletedTask;
     }
+
+    /// <inheritdoc />
+    public Task<IReadOnlyList<ApiKeyRecord>> FindBySubjectAsync(
+        string subject,
+        CancellationToken cancellationToken = default)
+    {
+        // A null or empty subject matches nothing: keys issued without a subject are not addressable
+        // in bulk, so they cannot be swept by an empty argument.
+        if (string.IsNullOrEmpty(subject))
+        {
+            return Task.FromResult<IReadOnlyList<ApiKeyRecord>>([]);
+        }
+
+        // Snapshot the id index rather than maintaining a separate subject index: subject is a
+        // lifecycle-immutable init-only property, but a flat scan keeps the store simple and the
+        // record count in a process-local store is small. A database-backed store would index this.
+        var matches = byId.Values
+            .Where(r => string.Equals(r.Subject, subject, StringComparison.Ordinal))
+            .ToList();
+        return Task.FromResult<IReadOnlyList<ApiKeyRecord>>(matches);
+    }
 }
