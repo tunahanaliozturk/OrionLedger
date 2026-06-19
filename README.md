@@ -53,10 +53,14 @@ was rejected and why.
   optional required scope into one `ApiKeyStatus`.
 - **Scopes.** Grant scopes at issuance; require one at verification.
 - **Expiry.** Per-key explicit expiry, or a configured default lifetime, or no expiry.
-- **Revocation.** Revoke by id; revoked keys verify as `Revoked`.
-- **Last-used tracking.** A successful verification stamps `LastUsedAt` on the record.
-- **Pluggable storage.** Ships with an in-memory store; implement `IApiKeyStore` (four methods) over
-  your database to persist and share keys.
+- **Revocation.** Revoke by id; revoked keys verify as `Revoked`. Revoke every active key for a
+  subject in one call with `RevokeAllForSubjectAsync`.
+- **Rotation.** Issue a fresh successor key with `RotateAsync`, with an optional grace window during
+  which the old key keeps verifying before it retires.
+- **Last-used tracking.** A successful verification stamps `LastUsedAt` and increments `LastUsedCount`
+  on the record.
+- **Pluggable storage.** Ships with an in-memory store; implement `IApiKeyStore` over your database
+  to persist and share keys. Bulk revoke by subject needs the optional `FindBySubjectAsync` override.
 - **Telemetry and audit.** An OpenTelemetry meter plus a fault-safe lifecycle observer.
 - **Constant-time hash comparison helper** for callers that compare hashes directly.
 - Multi-targets `net8.0`, `net9.0`, `net10.0`; nullable enabled; warnings as errors.
@@ -156,6 +160,63 @@ bool again   = await keys.RevokeAsync(keyId);   // false (already revoked)
 
 After revocation the key verifies as `ApiKeyStatus.Revoked`.
 
+### Rotation
+
+`RotateAsync` issues a fresh successor key (new id, secret, and hash) that inherits the
+predecessor's name, subject, scopes, and expiry, then supersedes the predecessor. The new plaintext
+token is returned once on `KeyRotation.Token` (a shortcut to `Successor.Token`) and never again,
+exactly like a fresh issuance.
+
+With a positive `grace`, the old key keeps verifying for that window so callers presenting the old
+token have time to migrate, then resolves as `ApiKeyStatus.Retired`. With a null or zero grace the
+predecessor is revoked immediately. Rotating a key that is missing, revoked, expired, or already
+superseded returns null.
+
+```csharp
+var rotation = await keys.RotateAsync(keyId, grace: TimeSpan.FromMinutes(5));
+if (rotation is null)
+{
+    return Results.NotFound();   // missing, revoked, expired, or already rotated
+}
+
+var newToken = rotation.Token;                        // show once, then store nothing but the record
+var successorId = rotation.Successor.Record.Id;
+var retiresAt = rotation.Predecessor.RetiresAt;       // when the old token stops verifying
+```
+
+During the grace window both the old and new tokens verify as `Valid`. Once the window elapses the
+old token verifies as `ApiKeyStatus.Retired`.
+
+### Last-used tracking
+
+Each successful verification stamps `LastUsedAt` and increments `LastUsedCount` on the record.
+
+```csharp
+var result = await keys.VerifyAsync(presentedToken);
+DateTimeOffset? lastUsed = result.Record!.LastUsedAt;
+long useCount = result.Record!.LastUsedCount;
+```
+
+`LastUsedCount` is a best-effort usage signal, not an exact ledger: concurrent verifications of the
+same key may race on the non-atomic increment and lose counts. A store needing an exact total should
+compute it durably (for example an atomic database increment).
+
+### Bulk revoke by subject
+
+A key may be issued with a `subject` (the owner it belongs to, for example a user, tenant, or
+service id). `RevokeAllForSubjectAsync` revokes every active key for that subject in one call and
+returns the number of keys it newly revoked. Already revoked, expired, and retired keys are skipped.
+
+```csharp
+await keys.IssueAsync("Acme web", subject: "tenant-42");
+await keys.IssueAsync("Acme worker", subject: "tenant-42");
+
+int revoked = await keys.RevokeAllForSubjectAsync("tenant-42");   // 2
+```
+
+Bulk revoke requires the store to support lookup by subject (`IApiKeyStore.FindBySubjectAsync`); the
+in-memory store does. A store that does not throws `NotSupportedException`.
+
 ### Custom store
 
 The default `InMemoryApiKeyStore` is process-local: it does not survive a restart and is not shared
@@ -170,6 +231,10 @@ public sealed class SqlApiKeyStore : IApiKeyStore
     public Task<ApiKeyRecord?> FindByHashAsync(string hash, CancellationToken ct = default) { /* by hash */ }
     public Task<ApiKeyRecord?> FindByIdAsync(string id, CancellationToken ct = default) { /* by id */ }
     public Task UpdateAsync(ApiKeyRecord record, CancellationToken ct = default) { /* UPDATE */ }
+
+    // Optional: only needed for RevokeAllForSubjectAsync. Without it bulk revoke throws
+    // NotSupportedException; the rest of the lifecycle works unchanged.
+    public Task<IReadOnlyList<ApiKeyRecord>> FindBySubjectAsync(string subject, CancellationToken ct = default) { /* by subject */ }
 }
 
 // Registration order matters: register the store first.
@@ -177,8 +242,10 @@ builder.Services.AddSingleton<IApiKeyStore, SqlApiKeyStore>();
 builder.Services.AddOrionLedger(o => o.Prefix = "ork_live_");
 ```
 
-The hash is the verification lookup key; index it. `UpdateAsync` persists the only two mutable
-fields, `RevokedAt` and `LastUsedAt`.
+The hash is the verification lookup key; index it. `UpdateAsync` persists the mutable lifecycle
+fields: `RevokedAt`, `LastUsedAt`, `LastUsedCount`, and the rotation timestamps (`SupersededAt`,
+`SupersededById`, `RetiresAt`). `FindBySubjectAsync` is a default interface method, so stores written
+against 0.1.0 keep compiling; override it only to enable bulk revoke by subject.
 
 ## Configuration
 
@@ -203,6 +270,7 @@ when the service is built; an invalid value throws at startup.
 | `NotFound` | No key with this token hash | No |
 | `Expired` | Past its expiry | Yes |
 | `Revoked` | Revoked | Yes |
+| `Retired` | Rotated, and its grace window has elapsed | Yes |
 | `MissingScope` | Otherwise valid but lacks the required scope | Yes |
 
 For every status except `Malformed` and `NotFound` the matched record is returned, so you can log
@@ -279,7 +347,7 @@ host machine.
 ## Versioning
 
 OrionLedger follows semantic versioning. The package multi-targets `net8.0`, `net9.0`, and
-`net10.0`. The current line is `0.1.0`; while the major version is `0`, the public surface may still
+`net10.0`. The current line is `0.2.0`; while the major version is `0`, the public surface may still
 change between minor versions. Notable changes are recorded in [CHANGELOG.md](CHANGELOG.md).
 
 ## Contributing
