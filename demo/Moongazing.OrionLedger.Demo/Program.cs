@@ -34,6 +34,7 @@ internal static class Program
         await ScopeDemo.RunAsync(keys);
         await ExpiryDemo.RunAsync(keys);
         await RevocationDemo.RunAsync(keys);
+        await LifecycleDemo.RunAsync(keys);
 
         Console.WriteLine();
         Console.WriteLine(new string('=', 72));
