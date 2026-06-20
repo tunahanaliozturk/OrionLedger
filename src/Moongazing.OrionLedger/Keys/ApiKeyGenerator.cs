@@ -1,5 +1,9 @@
 namespace Moongazing.OrionLedger.Keys;
 
+using System.Buffers;
+#if NET9_0_OR_GREATER
+using System.Buffers.Text;
+#endif
 using System.Security.Cryptography;
 
 /// <summary>
@@ -25,8 +29,29 @@ public static class ApiKeyGenerator
                 "secretByteLength must be at least 16.");
         }
 
-        var bytes = RandomNumberGenerator.GetBytes(secretByteLength);
-        return prefix + Base64UrlEncode(bytes);
+        // Secret bytes and their base64 encoding are short and bounded, so keep them on the stack for
+        // small secrets and fall back to a pooled buffer for larger ones. This avoids the per-issue
+        // byte[] plus the intermediate string/Trim/Replace allocations of a string-based encoder.
+        Span<byte> stackSecret = stackalloc byte[MaxStackSecretBytes];
+        byte[]? rentedBytes = null;
+        Span<byte> secret = secretByteLength <= MaxStackSecretBytes
+            ? stackSecret[..secretByteLength]
+            : (rentedBytes = ArrayPool<byte>.Shared.Rent(secretByteLength)).AsSpan(0, secretByteLength);
+
+        try
+        {
+            RandomNumberGenerator.Fill(secret);
+            return string.Concat(prefix, Base64UrlEncode(secret));
+        }
+        finally
+        {
+            // Scrub the plaintext secret bytes from the buffer before they leave scope.
+            CryptographicOperations.ZeroMemory(secret);
+            if (rentedBytes is not null)
+            {
+                ArrayPool<byte>.Shared.Return(rentedBytes);
+            }
+        }
     }
 
     /// <summary>
@@ -41,6 +66,46 @@ public static class ApiKeyGenerator
         return token.Length <= DisplayPrefixLength ? token : token[..DisplayPrefixLength];
     }
 
-    private static string Base64UrlEncode(byte[] bytes) =>
-        Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+    // Cap on stack-allocated secret bytes; secrets above this are pooled. Comfortably covers typical
+    // secret sizes (16-64 bytes) while bounding stack usage.
+    private const int MaxStackSecretBytes = 256;
+
+    private static string Base64UrlEncode(ReadOnlySpan<byte> bytes)
+    {
+#if NET9_0_OR_GREATER
+        return Base64Url.EncodeToString(bytes);
+#else
+        // base64 encodes n bytes in ceil(n/3)*4 chars; the unpadded base64url form is never longer.
+        var maxChars = ((bytes.Length + 2) / 3) * 4;
+        Span<char> encoded = stackalloc char[maxChars];
+        if (!Convert.TryToBase64Chars(bytes, encoded, out var written))
+        {
+            // Unreachable: the destination is sized for the worst case.
+            throw new InvalidOperationException("Base64 encoding failed.");
+        }
+
+        var result = encoded[..written];
+
+        // Map to the URL-safe alphabet and drop padding in place, then materialise once.
+        var length = result.Length;
+        for (var i = 0; i < length; i++)
+        {
+            switch (result[i])
+            {
+                case '+':
+                    result[i] = '-';
+                    break;
+                case '/':
+                    result[i] = '_';
+                    break;
+                case '=':
+                    length = i;
+                    goto done;
+            }
+        }
+
+    done:
+        return new string(result[..length]);
+#endif
+    }
 }
