@@ -48,6 +48,21 @@ public sealed class ApiKeyHasherTests
         }
     }
 
+    [Fact]
+    public void Hash_of_a_long_token_uses_the_pooled_path_and_stays_deterministic()
+    {
+        // A token whose UTF-8 size exceeds the stack threshold takes the pooled-buffer branch. The pooled
+        // path must produce the same digest as a fresh hash of the same input (and the buffer is cleared on
+        // return so no secret material leaks to the next renter).
+        var token = new string('k', 4096);
+
+        var first = ApiKeyHasher.Hash(token);
+        var second = ApiKeyHasher.Hash(token);
+
+        Assert.Equal(first, second);
+        Assert.Equal(64, first.Length);
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]
