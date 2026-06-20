@@ -44,4 +44,5 @@ Initial release. API key lifecycle.
 20 tests across the token and hash primitives, the service (issue, verify, expiry, default
 lifetime, revoke, scope, hash-at-rest), and registration.
 
+[0.2.1]: https://github.com/tunahanaliozturk/OrionLedger/releases/tag/v0.2.1
 [0.1.0]: https://github.com/tunahanaliozturk/OrionLedger/releases/tag/v0.1.0

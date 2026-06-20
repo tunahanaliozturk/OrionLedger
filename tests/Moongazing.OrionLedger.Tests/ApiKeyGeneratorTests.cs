@@ -141,6 +141,24 @@ public sealed class ApiKeyGeneratorTests
         Assert.ThrowsAny<ArgumentException>(() => ApiKeyGenerator.DisplayPrefix(token!));
     }
 
+    [Theory]
+    [InlineData(512)]
+    [InlineData(4096)]
+    public void A_large_configured_secret_length_issues_a_key_without_crashing(int secretByteLength)
+    {
+        // A secret length above the stack threshold must fall back to a pooled buffer for both the secret
+        // bytes and (on net8) their base64 encoding, rather than an unbounded stackalloc that overflows the
+        // stack. The token must still be a well-formed prefixed base64url secret of the expected length.
+        var token = ApiKeyGenerator.Generate("ork_", secretByteLength);
+        var secret = token["ork_".Length..];
+
+        var expected = (int)Math.Ceiling(secretByteLength * 4 / 3d);
+        Assert.Equal(expected, secret.Length);
+        Assert.DoesNotContain('+', secret);
+        Assert.DoesNotContain('/', secret);
+        Assert.DoesNotContain('=', secret);
+    }
+
     [Fact]
     public void Decoding_the_secret_recovers_the_requested_byte_count()
     {

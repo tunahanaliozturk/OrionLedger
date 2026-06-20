@@ -40,7 +40,9 @@ public static class ApiKeyHasher
         {
             if (rented is not null)
             {
-                ArrayPool<byte>.Shared.Return(rented);
+                // The rented buffer held the plaintext token's UTF-8 bytes. Clear it on return so the
+                // secret material is not leaked to the next renter of this shared pool buffer.
+                ArrayPool<byte>.Shared.Return(rented, clearArray: true);
             }
         }
 

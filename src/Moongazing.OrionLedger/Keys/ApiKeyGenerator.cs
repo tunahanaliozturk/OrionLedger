@@ -70,6 +70,12 @@ public static class ApiKeyGenerator
     // secret sizes (16-64 bytes) while bounding stack usage.
     private const int MaxStackSecretBytes = 256;
 
+#if !NET9_0_OR_GREATER
+    // Cap on stack-allocated base64 chars in the net8 fallback. ceil(256/3)*4 = 344 covers the encoding
+    // of every stack-sized secret; larger secrets pool both the bytes and their encoded chars.
+    private const int MaxStackEncodedChars = 344;
+#endif
+
     private static string Base64UrlEncode(ReadOnlySpan<byte> bytes)
     {
 #if NET9_0_OR_GREATER
@@ -77,35 +83,55 @@ public static class ApiKeyGenerator
 #else
         // base64 encodes n bytes in ceil(n/3)*4 chars; the unpadded base64url form is never longer.
         var maxChars = ((bytes.Length + 2) / 3) * 4;
-        Span<char> encoded = stackalloc char[maxChars];
-        if (!Convert.TryToBase64Chars(bytes, encoded, out var written))
-        {
-            // Unreachable: the destination is sized for the worst case.
-            throw new InvalidOperationException("Base64 encoding failed.");
-        }
 
-        var result = encoded[..written];
+        // The secret byte length is public/configurable, so maxChars can be arbitrarily large. Bound the
+        // stack the same way the secret bytes are bounded: stackalloc only below the threshold, pool above
+        // it. Otherwise a large-but-accepted secret length would overflow the stack and crash the process.
+        char[]? rentedChars = null;
+        Span<char> encoded = maxChars <= MaxStackEncodedChars
+            ? stackalloc char[MaxStackEncodedChars]
+            : (rentedChars = ArrayPool<char>.Shared.Rent(maxChars)).AsSpan(0, maxChars);
 
-        // Map to the URL-safe alphabet and drop padding in place, then materialise once.
-        var length = result.Length;
-        for (var i = 0; i < length; i++)
+        try
         {
-            switch (result[i])
+            if (!Convert.TryToBase64Chars(bytes, encoded, out var written))
             {
-                case '+':
-                    result[i] = '-';
-                    break;
-                case '/':
-                    result[i] = '_';
-                    break;
-                case '=':
-                    length = i;
-                    goto done;
+                // Unreachable: the destination is sized for the worst case.
+                throw new InvalidOperationException("Base64 encoding failed.");
+            }
+
+            var result = encoded[..written];
+
+            // Map to the URL-safe alphabet and drop padding in place, then materialise once.
+            var length = result.Length;
+            for (var i = 0; i < length; i++)
+            {
+                switch (result[i])
+                {
+                    case '+':
+                        result[i] = '-';
+                        break;
+                    case '/':
+                        result[i] = '_';
+                        break;
+                    case '=':
+                        length = i;
+                        goto done;
+                }
+            }
+
+        done:
+            return new string(result[..length]);
+        }
+        finally
+        {
+            if (rentedChars is not null)
+            {
+                // The rented buffer held the base64 encoding of the plaintext secret. Clear it on return so
+                // the secret-derived characters are not leaked to the next renter of this shared buffer.
+                ArrayPool<char>.Shared.Return(rentedChars, clearArray: true);
             }
         }
-
-    done:
-        return new string(result[..length]);
 #endif
     }
 }
