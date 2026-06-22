@@ -149,4 +149,72 @@ public sealed class EfApiKeyStoreTests : IAsyncLifetime
         Assert.Equal(3, found.LastUsedCount);
         Assert.NotNull(found.RevokedAt);
     }
+
+    [Fact]
+    public async Task a_stale_last_used_update_does_not_clear_a_concurrent_revocation()
+    {
+        // The lost-update hazard the store must not have: a verifier loads an active record, another
+        // request revokes the same key, then the verifier persists its last-used stamp from the stale
+        // snapshot. If the last-used update wrote the whole record it would push RevokedAt = null back
+        // over the revocation and resurrect a revoked key. It must instead write only the columns it
+        // changed (last-used), leaving the revocation intact.
+        var store = NewStore();
+        await store.AddAsync(Record("racy", ApiKeyHasher.Hash("racy")));
+
+        // 1. The verifier loads the record while it is still active (its own no-tracking instance).
+        var verifierView = await store.FindByIdAsync("racy");
+        Assert.NotNull(verifierView);
+        Assert.Null(verifierView.RevokedAt);
+
+        // 2. A concurrent request revokes the key through the store on a separate loaded instance.
+        var revokerView = await store.FindByIdAsync("racy");
+        Assert.NotNull(revokerView);
+        var revokedAt = new DateTimeOffset(2026, 6, 4, 0, 0, 0, TimeSpan.Zero);
+        revokerView.RevokedAt = revokedAt;
+        await store.UpdateAsync(revokerView);
+
+        // 3. The verifier now persists its last-used update from the stale (pre-revocation) snapshot.
+        verifierView.LastUsedAt = new DateTimeOffset(2026, 6, 4, 1, 0, 0, TimeSpan.Zero);
+        verifierView.LastUsedCount += 1;
+        await store.UpdateAsync(verifierView);
+
+        // The revocation must survive: the stale verify did not change RevokedAt, so its update must not
+        // have written it. The key stays revoked and the last-used stamp still landed.
+        var found = await store.FindByIdAsync("racy");
+        Assert.NotNull(found);
+        Assert.Equal(revokedAt, found.RevokedAt);
+        Assert.Equal(1, found.LastUsedCount);
+        Assert.NotNull(found.LastUsedAt);
+    }
+
+    [Fact]
+    public async Task a_stale_last_used_update_does_not_clear_a_concurrent_rotation()
+    {
+        // The same hazard for the rotation columns: a stale verify must not blank SupersededAt /
+        // SupersededById / RetiresAt that a concurrent rotation set after the record was loaded.
+        var store = NewStore();
+        await store.AddAsync(Record("rotated", ApiKeyHasher.Hash("rotated")));
+
+        var verifierView = await store.FindByIdAsync("rotated");
+        Assert.NotNull(verifierView);
+
+        var rotaterView = await store.FindByIdAsync("rotated");
+        Assert.NotNull(rotaterView);
+        var supersededAt = new DateTimeOffset(2026, 6, 5, 0, 0, 0, TimeSpan.Zero);
+        rotaterView.SupersededAt = supersededAt;
+        rotaterView.SupersededById = "successor";
+        rotaterView.RetiresAt = supersededAt.AddMinutes(10);
+        await store.UpdateAsync(rotaterView);
+
+        // Stale verify persists only last-used.
+        verifierView.LastUsedCount += 1;
+        await store.UpdateAsync(verifierView);
+
+        var found = await store.FindByIdAsync("rotated");
+        Assert.NotNull(found);
+        Assert.Equal(supersededAt, found.SupersededAt);
+        Assert.Equal("successor", found.SupersededById);
+        Assert.Equal(supersededAt.AddMinutes(10), found.RetiresAt);
+        Assert.Equal(1, found.LastUsedCount);
+    }
 }

@@ -16,6 +16,17 @@ using Moongazing.OrionLedger.Keys;
 /// <see cref="OrionLedgerDbContext"/>. The hash carries a unique index because it is the
 /// verification lookup key; the subject carries a non-unique index because it backs bulk revoke.
 /// </summary>
+/// <remarks>
+/// Subject matching is defined by the contract as ordinal and case sensitive (see
+/// <see cref="Storage.IApiKeyStore.FindBySubjectAsync"/>). <see cref="EfApiKeyStore{TContext}"/>
+/// enforces that in code with a final ordinal filter, so bulk revoke is correct on every provider
+/// regardless of the database collation. Collation names are provider specific, so this configuration
+/// does not hard-code one; if you also query the subject column directly (outside the store) on a
+/// database whose default collation is case insensitive, pass a provider-appropriate case-sensitive
+/// collation through the constructor to make the column itself match ordinally (for example
+/// <c>SQL_Latin1_General_CP1_CS_AS</c> on SQL Server, <c>C</c> on PostgreSQL; SQLite is already
+/// case sensitive for ASCII).
+/// </remarks>
 public sealed class ApiKeyRecordConfiguration : IEntityTypeConfiguration<ApiKeyRecord>
 {
     /// <summary>The default table name. Override by configuring the entity yourself if it clashes.</summary>
@@ -24,6 +35,7 @@ public sealed class ApiKeyRecordConfiguration : IEntityTypeConfiguration<ApiKeyR
     private static readonly JsonSerializerOptions ScopesJsonOptions = new(JsonSerializerDefaults.Web);
 
     private readonly string tableName;
+    private readonly string? subjectCollation;
 
     /// <summary>Map to the default table name (<see cref="DefaultTableName"/>).</summary>
     public ApiKeyRecordConfiguration()
@@ -34,9 +46,24 @@ public sealed class ApiKeyRecordConfiguration : IEntityTypeConfiguration<ApiKeyR
     /// <summary>Map to a caller-supplied table name.</summary>
     /// <param name="tableName">The table to map the entity to. Must not be null or empty.</param>
     public ApiKeyRecordConfiguration(string tableName)
+        : this(tableName, subjectCollation: null)
+    {
+    }
+
+    /// <summary>Map to a caller-supplied table name and pin the subject column collation.</summary>
+    /// <param name="tableName">The table to map the entity to. Must not be null or empty.</param>
+    /// <param name="subjectCollation">
+    /// A provider-specific case-sensitive collation to apply to the subject column, or null to leave it
+    /// at the database default. The store enforces ordinal subject matching in code regardless; supply a
+    /// collation only when you also query the subject column directly on a case-insensitive database and
+    /// want the column itself to match case sensitively. Must be a collation the target provider knows,
+    /// or model creation fails.
+    /// </param>
+    public ApiKeyRecordConfiguration(string tableName, string? subjectCollation)
     {
         ArgumentException.ThrowIfNullOrEmpty(tableName);
         this.tableName = tableName;
+        this.subjectCollation = subjectCollation;
     }
 
     /// <inheritdoc />
@@ -57,8 +84,18 @@ public sealed class ApiKeyRecordConfiguration : IEntityTypeConfiguration<ApiKeyR
             .IsRequired()
             .HasMaxLength(256);
 
-        builder.Property(r => r.Subject)
+        var subject = builder.Property(r => r.Subject)
             .HasMaxLength(256);
+
+        // Pin a case-sensitive collation on the column when the caller supplied one for their provider.
+        // The store's FindBySubjectAsync applies a final ordinal filter so bulk revoke is case sensitive
+        // regardless of this, but a pinned collation also makes direct queries against the column match
+        // ordinally on a database whose default collation is case insensitive. Collation names are
+        // provider specific, so this is opt-in rather than a hard-coded default.
+        if (!string.IsNullOrEmpty(subjectCollation))
+        {
+            subject.UseCollation(subjectCollation);
+        }
 
         builder.Property(r => r.DisplayPrefix)
             .IsRequired()

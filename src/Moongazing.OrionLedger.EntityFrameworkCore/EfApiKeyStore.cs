@@ -22,13 +22,15 @@ using Moongazing.OrionLedger.Storage;
 /// which also registers the pooling context factory.
 /// </para>
 /// <para>
-/// The last-used counter is the one field that must survive concurrent writers, so
-/// <see cref="UpdateAsync"/> applies it as a server-side <c>LastUsedCount = LastUsedCount + delta</c>
-/// rather than writing back a value read into memory. The delta is taken against the value the
-/// record carried when it was loaded, captured per returned record instance, so two concurrent
-/// verifications each land their <c>+1</c> instead of racing on a read-modify-write. The remaining
-/// lifecycle fields (revocation and rotation timestamps) are last-writer-wins, which matches their
-/// idempotent intent.
+/// <see cref="UpdateAsync"/> writes only the lifecycle columns the caller actually changed, derived
+/// per record instance from the values it carried when it was loaded. A verify that stamped only the
+/// last-used fields emits a SET clause for those fields alone; it never writes <c>RevokedAt</c> or the
+/// rotation columns, so a verify's last-used update cannot resurrect a key a concurrent request
+/// revoked by writing a stale <c>RevokedAt = null</c> back over it. Each operation owns its columns:
+/// revoke writes <c>RevokedAt</c>, rotation writes the rotation timestamps, verify writes only
+/// last-used. The last-used counter is additionally applied as a server-side
+/// <c>LastUsedCount = LastUsedCount + delta</c> against the loaded value, so two concurrent
+/// verifications each land their <c>+1</c> instead of racing on a read-modify-write.
 /// </para>
 /// <para>
 /// The backing <typeparamref name="TContext"/> must map <see cref="ApiKeyRecord"/>; the bundled
@@ -42,11 +44,12 @@ public sealed class EfApiKeyStore<TContext> : IApiKeyStore
 {
     private readonly IDbContextFactory<TContext> contextFactory;
 
-    // The last-used counter as it was loaded, captured per record instance so UpdateAsync can derive
-    // the intended delta and apply it server side. Keyed by the returned record's reference identity:
-    // no-tracking reads hand back a distinct object per call, so concurrent loads of the same id get
-    // independent snapshots and never race. Entries are collected with their record.
-    private readonly ConditionalWeakTable<ApiKeyRecord, StrongBox<long>> loadedCounts = new();
+    // The lifecycle state each record carried when it was last loaded (or added) through this store,
+    // captured per record instance so UpdateAsync can write back only the columns whose value the
+    // caller actually changed. Keyed by the returned record's reference identity: no-tracking reads
+    // hand back a distinct object per call, so concurrent loads of the same id get independent
+    // snapshots and never race. Entries are collected with their record.
+    private readonly ConditionalWeakTable<ApiKeyRecord, LoadedState> loadedState = new();
 
     /// <summary>Create the store over a context factory.</summary>
     /// <param name="contextFactory">A factory for the backing context. Must map <see cref="ApiKeyRecord"/>.</param>
@@ -66,7 +69,7 @@ public sealed class EfApiKeyStore<TContext> : IApiKeyStore
         context.Set<ApiKeyRecord>().Add(record);
         await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
-        // The inserted counter is the baseline for a later UpdateAsync on this same record instance.
+        // The inserted state is the baseline for a later UpdateAsync on this same record instance.
         Remember(record);
     }
 
@@ -107,11 +110,35 @@ public sealed class EfApiKeyStore<TContext> : IApiKeyStore
     {
         ArgumentNullException.ThrowIfNull(record);
 
-        // The counter is applied as a server-side delta from the value the record was loaded with, so
-        // concurrent increments compose at the database instead of racing in memory. A record that
-        // was built fresh (never loaded through this store) has no snapshot, so its delta is its full
-        // current count, which is the correct behaviour for a counter that started at zero.
-        var delta = record.LastUsedCount - LoadedCount(record);
+        // The state the record was loaded with. A record built fresh (never loaded through this store)
+        // has no snapshot, so it is treated as all-default: every field it carries that differs from
+        // the default is written, which is the correct behaviour for a first persist of mutations.
+        var loaded = LoadedStateOf(record);
+
+        // The last-used counter is applied as a server-side delta from the value the record was loaded
+        // with, so concurrent increments compose at the database instead of racing in memory. When the
+        // operation did not touch the counter the delta is zero and the (always-present) increment is a
+        // harmless no-op.
+        var countDelta = record.LastUsedCount - loaded.LastUsedCount;
+
+        // Decide, per lifecycle column, whether this operation changed it relative to the loaded value.
+        // A column the caller did not change is set to its own current database value (SET col = col),
+        // never to the value the record carries. This is what stops a verify's last-used update from
+        // carrying a stale lifecycle field back over a concurrent revoke or rotation: the verify did not
+        // change RevokedAt, so the UPDATE re-applies the row's own current RevokedAt within the same
+        // atomic statement instead of writing the stale snapshot value (which would clear a revoke that
+        // landed after the record was loaded). Each operation thus only ever writes the columns it owns:
+        // revoke writes RevokedAt, rotation writes the rotation timestamps, verify writes only last-used.
+        //
+        // The conditions are captured as constants and the setters are one fluent expression because the
+        // EF8/EF9 ExecuteUpdate overload takes an expression tree (the statement-lambda overload is
+        // EF10-only); a `flag ? newValue : r.Column` ternary is expression-tree-legal and translates to
+        // the column's current value when the flag is false on every supported provider.
+        var writeRevokedAt = record.RevokedAt != loaded.RevokedAt;
+        var writeLastUsedAt = record.LastUsedAt != loaded.LastUsedAt;
+        var writeSupersededAt = record.SupersededAt != loaded.SupersededAt;
+        var writeSupersededById = !string.Equals(record.SupersededById, loaded.SupersededById, StringComparison.Ordinal);
+        var writeRetiresAt = record.RetiresAt != loaded.RetiresAt;
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 
@@ -119,12 +146,14 @@ public sealed class EfApiKeyStore<TContext> : IApiKeyStore
             .Where(r => r.Id == record.Id)
             .ExecuteUpdateAsync(
                 setters => setters
-                    .SetProperty(r => r.RevokedAt, record.RevokedAt)
-                    .SetProperty(r => r.LastUsedAt, record.LastUsedAt)
-                    .SetProperty(r => r.LastUsedCount, r => r.LastUsedCount + delta)
-                    .SetProperty(r => r.SupersededAt, record.SupersededAt)
-                    .SetProperty(r => r.SupersededById, record.SupersededById)
-                    .SetProperty(r => r.RetiresAt, record.RetiresAt),
+                    // The counter is always applied as an atomic server-side increment (zero-delta when
+                    // the operation did not touch it), which also guarantees the SET clause is non-empty.
+                    .SetProperty(r => r.LastUsedCount, r => r.LastUsedCount + countDelta)
+                    .SetProperty(r => r.LastUsedAt, r => writeLastUsedAt ? record.LastUsedAt : r.LastUsedAt)
+                    .SetProperty(r => r.RevokedAt, r => writeRevokedAt ? record.RevokedAt : r.RevokedAt)
+                    .SetProperty(r => r.SupersededAt, r => writeSupersededAt ? record.SupersededAt : r.SupersededAt)
+                    .SetProperty(r => r.SupersededById, r => writeSupersededById ? record.SupersededById : r.SupersededById)
+                    .SetProperty(r => r.RetiresAt, r => writeRetiresAt ? record.RetiresAt : r.RetiresAt),
                 cancellationToken)
             .ConfigureAwait(false);
 
@@ -137,8 +166,8 @@ public sealed class EfApiKeyStore<TContext> : IApiKeyStore
                 $"Cannot update API key record '{record.Id}': no row with that id exists.");
         }
 
-        // The committed counter has advanced by delta; rebase this record's snapshot so a second
-        // UpdateAsync for the same instance derives its next delta from the new baseline.
+        // The committed state now matches what this record carries; rebase its snapshot so a second
+        // UpdateAsync for the same instance derives its next delta and column set from the new baseline.
         Remember(record);
     }
 
@@ -162,22 +191,82 @@ public sealed class EfApiKeyStore<TContext> : IApiKeyStore
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        foreach (var record in records)
+        // Ordinal, case-sensitive guard. The subject column is configured with a case-sensitive
+        // collation where the provider supports it (see ApiKeyRecordConfiguration), but the database
+        // predicate above is still evaluated under the column/connection collation, which on a
+        // case-insensitive provider or database would match "Tenant" for "tenant". The store contract
+        // requires ordinal matching regardless of provider collation, so re-filter the candidates in
+        // memory with an ordinal comparison: a case-variant subject can never be returned (and so can
+        // never be bulk-revoked) even on a case-insensitive database. The candidate set is already
+        // narrowed by the indexed predicate, so this final pass is over a small list.
+        var matches = records
+            .Where(r => string.Equals(r.Subject, subject, StringComparison.Ordinal))
+            .ToList();
+
+        foreach (var record in matches)
         {
             Remember(record);
         }
 
-        return records;
+        return matches;
     }
 
     private void Remember(ApiKeyRecord? record)
     {
         if (record is not null)
         {
-            loadedCounts.AddOrUpdate(record, new StrongBox<long>(record.LastUsedCount));
+            loadedState.AddOrUpdate(record, LoadedState.From(record));
         }
     }
 
-    private long LoadedCount(ApiKeyRecord record) =>
-        loadedCounts.TryGetValue(record, out var box) ? box.Value : 0L;
+    private LoadedState LoadedStateOf(ApiKeyRecord record) =>
+        loadedState.TryGetValue(record, out var state) ? state : LoadedState.Default;
+
+    // An immutable snapshot of the mutable lifecycle fields a record carried when it was loaded or
+    // added through this store. UpdateAsync diffs the live record against it to decide which columns
+    // the caller changed, so each operation writes only the columns it owns.
+    private sealed class LoadedState
+    {
+        // The baseline for a record never seen by this store: all lifecycle fields at their type
+        // defaults (counter zero, timestamps and ids null). Diffing against this writes every field the
+        // record carries that is not default, which is the correct first persist for a fresh record.
+        public static readonly LoadedState Default = new(null, null, 0L, null, null, null);
+
+        private LoadedState(
+            DateTimeOffset? revokedAt,
+            DateTimeOffset? lastUsedAt,
+            long lastUsedCount,
+            DateTimeOffset? supersededAt,
+            string? supersededById,
+            DateTimeOffset? retiresAt)
+        {
+            RevokedAt = revokedAt;
+            LastUsedAt = lastUsedAt;
+            LastUsedCount = lastUsedCount;
+            SupersededAt = supersededAt;
+            SupersededById = supersededById;
+            RetiresAt = retiresAt;
+        }
+
+        public DateTimeOffset? RevokedAt { get; }
+
+        public DateTimeOffset? LastUsedAt { get; }
+
+        public long LastUsedCount { get; }
+
+        public DateTimeOffset? SupersededAt { get; }
+
+        public string? SupersededById { get; }
+
+        public DateTimeOffset? RetiresAt { get; }
+
+        public static LoadedState From(ApiKeyRecord record) =>
+            new(
+                record.RevokedAt,
+                record.LastUsedAt,
+                record.LastUsedCount,
+                record.SupersededAt,
+                record.SupersededById,
+                record.RetiresAt);
+    }
 }
