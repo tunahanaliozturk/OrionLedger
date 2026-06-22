@@ -220,9 +220,16 @@ in-memory store does. A store that does not throws `NotSupportedException`.
 ### Custom store
 
 The default `InMemoryApiKeyStore` is process-local: it does not survive a restart and is not shared
-across instances. To persist keys, implement `IApiKeyStore` over your database and register it
-*before* `AddOrionLedger()`. The in-memory store is only added if no `IApiKeyStore` is already
-present.
+across instances. For a ready-made durable store, add
+[`OrionLedger.EntityFrameworkCore`](https://www.nuget.org/packages/OrionLedger.EntityFrameworkCore/),
+which implements `IApiKeyStore` over EF Core (it indexes the hash, persists every lifecycle field,
+and increments last-used atomically). To roll your own instead, implement `IApiKeyStore` over your
+database and register it *before* `AddOrionLedger()`. The in-memory store is only added if no
+`IApiKeyStore` is already present.
+
+If you write a custom store, the
+[`OrionLedger.Conformance`](https://www.nuget.org/packages/OrionLedger.Conformance/) package provides
+a reusable xUnit suite that checks it against the `IApiKeyStore` contract.
 
 ```csharp
 public sealed class SqlApiKeyStore : IApiKeyStore
@@ -346,8 +353,8 @@ host machine.
 
 ## Versioning
 
-OrionLedger follows semantic versioning. The package multi-targets `net8.0`, `net9.0`, and
-`net10.0`. The current line is `0.2.0`; while the major version is `0`, the public surface may still
+OrionLedger follows semantic versioning. The packages multi-target `net8.0`, `net9.0`, and
+`net10.0`. The current line is `0.3.0`; while the major version is `0`, the public surface may still
 change between minor versions. Notable changes are recorded in [CHANGELOG.md](CHANGELOG.md).
 
 ## Contributing

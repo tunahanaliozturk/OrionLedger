@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>OrionLedger.Conformance</PackageId>
+    <RootNamespace>Moongazing.OrionLedger.Conformance</RootNamespace>
+    <Description>A reusable xUnit conformance suite for OrionLedger IApiKeyStore implementations. Derive from ApiKeyStoreConformanceTests, supply a store factory, and inherit a battery of contract tests covering add, lookup by hash and id, update, revoke, rotation timestamps, last-used tracking (including a concurrent-increment check), scope round-trips, and lookup by subject. Run it against any custom store to confirm it honours the IApiKeyStore contract.</Description>
+    <PackageTags>api-key;apikey;testing;conformance;contract-tests;xunit;orion</PackageTags>
+    <PackageIcon>icon.png</PackageIcon>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <!-- This is a consumable library of abstract xUnit base classes, not a runnable test project.
+         It references xunit so it is shipped as a contract suite, but `dotnet test` over the solution
+         must not try to execute it (it has no test runner and no entry point). Mark it accordingly so
+         VSTest skips it and only real test projects run. -->
+    <IsTestProject>false</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Moongazing.OrionLedger\Moongazing.OrionLedger.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- xUnit is a public dependency here: the base class derives from FactAttribute consumers and
+         implements IAsyncLifetime, so a deriving test project links the same major. -->
+    <PackageReference Include="xunit" Version="2.9.2" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(IsPackable)' == 'true'">
+    <!-- Directory.Build.props already packs docs/icon.png to \icon.png for every packable project, so
+         the icon is inherited and must not be re-added. It also packs the repository-root README to
+         \README.md; remove that and pack this package's own README instead so the NuGet page is
+         package specific. -->
+    <None Remove="$(MSBuildProjectDirectory)\..\..\README.md" />
+    <None Include="$(MSBuildProjectDirectory)\README.md" Pack="true" PackagePath="\" Visible="false" />
+  </ItemGroup>
+</Project>

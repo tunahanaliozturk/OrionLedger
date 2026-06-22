@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>OrionLedger.EntityFrameworkCore</PackageId>
+    <RootNamespace>Moongazing.OrionLedger.EntityFrameworkCore</RootNamespace>
+    <Description>EF Core reference store for OrionLedger. Implements IApiKeyStore over Entity Framework Core: maps ApiKeyRecord, indexes the token hash as the verification lookup key, persists the mutable lifecycle fields (RevokedAt, LastUsedAt, LastUsedCount, and the rotation timestamps), and applies the last-used increment as an atomic server-side update so concurrent verifications do not lose counts. Provider agnostic; ships FindBySubjectAsync so bulk revoke works out of the box.</Description>
+    <PackageTags>api-key;apikey;authentication;ef-core;entity-framework-core;persistence;revocation;orion</PackageTags>
+    <PackageIcon>icon.png</PackageIcon>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <!-- Deliberately NOT IsAotCompatible: EF Core is not trim or NativeAOT safe (the DbContext
+         pipeline and the JSON scope converter raise IL2026/IL3050). Asserting AOT support here
+         would be a false promise. The pure-abstractions Orion packages can claim it; a runtime EF
+         store cannot. -->
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Moongazing.OrionLedger\Moongazing.OrionLedger.csproj" />
+  </ItemGroup>
+  <!--
+    EF Core major must track the consumer's target framework: the 9.0.x/10.0.x packages do not
+    restore on net8.0 (NU1202). Pin one matching major per TFM, the same split the integration test
+    project uses, so every framework builds. Microsoft.EntityFrameworkCore.Relational (not a provider
+    package) is the minimal dependency: the mapping, the migration-friendly configuration, and the
+    ExecuteUpdate increment live in the relational abstractions, leaving provider choice to the consumer.
+  -->
+  <ItemGroup Condition="'$(TargetFramework)' == 'net8.0'">
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="8.0.10" />
+    <!-- The core OrionLedger package floors DependencyInjection.Abstractions at 9.0.0 on every TFM,
+         so match it here on net8.0 to avoid an NU1605 downgrade. 9.0.0 runs on net8.0. -->
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="9.0.0" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net9.0'">
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="9.0.0" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="9.0.0" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.0" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(IsPackable)' == 'true'">
+    <!-- Directory.Build.props already packs docs/icon.png to \icon.png for every packable project, so
+         the icon is inherited and must not be re-added. It also packs the repository-root README to
+         \README.md; remove that and pack this package's own README instead so the NuGet page is
+         package specific. -->
+    <None Remove="$(MSBuildProjectDirectory)\..\..\README.md" />
+    <None Include="$(MSBuildProjectDirectory)\README.md" Pack="true" PackagePath="\" Visible="false" />
+  </ItemGroup>
+</Project>

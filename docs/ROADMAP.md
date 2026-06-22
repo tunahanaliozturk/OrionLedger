@@ -4,10 +4,11 @@
 > current release may be reshaped, reordered, or dropped. While the major version is `0` the public
 > surface can still change between minor versions.
 
-OrionLedger is at `0.2.1`: an API key lifecycle library that issues prefixed, high-entropy tokens,
+OrionLedger is at `0.3.0`: an API key lifecycle library that issues prefixed, high-entropy tokens,
 stores only their hash, and verifies a presented key against prefix, hash, expiry, revocation, and
 scope, with rotation, bulk revoke by subject, last-verified tracking, telemetry, and a fault-safe
-observer.
+observer. Durable storage now has a reference EF Core store (`OrionLedger.EntityFrameworkCore`) and a
+reusable store contract test suite (`OrionLedger.Conformance`).
 
 If one of the directions below matters for your use case, open an issue. Concrete demand is the best
 signal for what to build next.
@@ -15,6 +16,22 @@ signal for what to build next.
 ---
 
 ## Released
+
+### 0.3.0 (2026-06-22) - durable storage
+
+- A reference EF Core `IApiKeyStore` in a companion package, `OrionLedger.EntityFrameworkCore`. It
+  maps `ApiKeyRecord` (and bundles a ready-made `OrionLedgerDbContext`), uniquely indexes the hash as
+  the verification lookup key, indexes the subject for bulk revoke, stores the scope set as a JSON
+  column, and persists the mutable lifecycle fields (`RevokedAt`, `LastUsedAt`, `LastUsedCount`, and
+  the rotation timestamps). It ships `FindBySubjectAsync`, so bulk revoke works out of the box.
+- The EF store applies the last-used update as a server-side `LastUsedCount = LastUsedCount + delta`,
+  so concurrent verifications do not lose counts: under this store `LastUsedCount` is exact, not
+  best-effort. It depends only on `Microsoft.EntityFrameworkCore.Relational`, leaving provider choice
+  to the consumer.
+- A reusable contract test suite in `OrionLedger.Conformance`: derive `ApiKeyStoreConformanceTests`,
+  supply a store factory, and inherit tests for lookup by hash and id, update, last-used tracking
+  (including that concurrent increments are not lost), scopes, and lookup by subject. The EF store
+  runs through it against a real SQLite database.
 
 ### 0.2.1 (2026-06-20) - allocation-free hot path
 
@@ -48,18 +65,6 @@ signal for what to build next.
 ---
 
 ## Next
-
-### 0.3.0 - durable storage (target 2026-07)
-
-The default store is in-memory: it does not survive a restart and is not shared across instances.
-The gap most consumers hit first is persistence.
-
-- A reference EF Core `IApiKeyStore` (a companion package, `OrionLedger.EntityFrameworkCore`) that
-  maps `ApiKeyRecord`, indexes the hash as the verification lookup key, and persists the mutable
-  lifecycle fields (`RevokedAt`, `LastUsedAt`, `LastUsedCount`, and the rotation timestamps). Ships
-  with `FindBySubjectAsync` so bulk revoke works out of the box.
-- A store contract test suite a custom `IApiKeyStore` can run against to confirm it honours
-  lookup-by-hash, lookup-by-id, update, and (where supported) lookup-by-subject semantics.
 
 ### 0.4.0 - ASP.NET Core integration (target 2026-08)
 
