@@ -1,9 +1,15 @@
 namespace Moongazing.OrionLedger.AspNetCore.Authorization;
 
+using System.Security.Claims;
+
 using Microsoft.AspNetCore.Authorization;
 
 /// <summary>
-/// Evaluates <see cref="ApiKeyScopeRequirement"/> against the current principal's scope claims.
+/// Evaluates <see cref="ApiKeyScopeRequirement"/> against the scope claims of the principal's
+/// OrionLedger API key identity. Scope claims are read only from identities authenticated by the
+/// requirement's <see cref="ApiKeyScopeRequirement.AuthenticationScheme"/>, so a scope claim minted by
+/// a different scheme (a cookie or JWT identity on the same principal) cannot satisfy an API key scope
+/// requirement.
 /// </summary>
 public sealed class ApiKeyScopeAuthorizationHandler : AuthorizationHandler<ApiKeyScopeRequirement>
 {
@@ -15,8 +21,17 @@ public sealed class ApiKeyScopeAuthorizationHandler : AuthorizationHandler<ApiKe
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(requirement);
 
-        var held = context.User.FindAll(requirement.ScopeClaimType)
-            .Select(static c => c.Value);
+        // Only the API key identity may satisfy the requirement. A ClaimsPrincipal aggregates one
+        // identity per authenticated scheme, so binding to AuthenticationType (which the API key
+        // handler sets to its scheme name) keeps a scope claim from another scheme out of the check.
+        var held = context.User.Identities
+            .Where(identity => identity.IsAuthenticated
+                && string.Equals(
+                    identity.AuthenticationType,
+                    requirement.AuthenticationScheme,
+                    StringComparison.Ordinal))
+            .SelectMany(identity => identity.FindAll(requirement.ScopeClaimType))
+            .Select(static claim => claim.Value);
         var heldSet = new HashSet<string>(held, StringComparer.Ordinal);
 
         var satisfied = requirement.RequireAll

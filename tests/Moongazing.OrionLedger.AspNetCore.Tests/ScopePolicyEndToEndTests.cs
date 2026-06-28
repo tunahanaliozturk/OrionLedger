@@ -141,4 +141,83 @@ public sealed class ScopePolicyEndToEndTests
 
         Assert.Equal("tenant-9", name);
     }
+
+    [Fact]
+    public async Task scope_claim_from_a_different_scheme_does_not_pass_api_key_policy()
+    {
+        // A second scheme authenticates every request and mints scope=orders:read. The API key scope
+        // policy is bound to the API key scheme, so this cross-scheme scope claim must not authorize
+        // the protected endpoint: forbidden, not allowed.
+        var host = await new HostBuilder()
+            .ConfigureWebHost(web =>
+            {
+                web.UseTestServer();
+                web.ConfigureServices(services =>
+                {
+                    var store = new InMemoryApiKeyStore();
+                    services.AddRouting();
+                    services.AddSingleton<IApiKeyStore>(store);
+                    services.AddSingleton<IApiKeyService>(
+                        new ApiKeyService(store, new ApiKeyOptions(), new ApiKeyDiagnostics()));
+
+                    services.AddAuthentication(ForeignScopeAuthHandler.SchemeName)
+                        .AddOrionLedgerApiKey()
+                        .AddScheme<AuthenticationSchemeOptions, ForeignScopeAuthHandler>(
+                            ForeignScopeAuthHandler.SchemeName, configureOptions: null);
+
+                    services.AddAuthorization(options =>
+                    {
+                        options.AddApiKeyScopePolicy("orders-read", "orders:read");
+                    });
+                });
+                web.Configure(app =>
+                {
+                    app.UseRouting();
+                    app.UseAuthentication();
+                    app.UseAuthorization();
+                    app.UseEndpoints(endpoints =>
+                    {
+                        endpoints.MapGet("/orders", () => "orders-ok")
+                            .RequireAuthorization("orders-read");
+                    });
+                });
+            })
+            .StartAsync();
+        using var _h = host;
+
+        var client = host.GetTestClient();
+        var response = await client.GetAsync(new Uri("/orders", UriKind.Relative));
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    /// <summary>
+    /// A stand-in for a cookie/JWT scheme: authenticates every request and mints a scope claim that
+    /// matches the API key scope policy, to prove that claim cannot satisfy the API key requirement.
+    /// </summary>
+    private sealed class ForeignScopeAuthHandler : AuthenticationHandler<AuthenticationSchemeOptions>
+    {
+        public const string SchemeName = "Foreign";
+
+        public ForeignScopeAuthHandler(
+            Microsoft.Extensions.Options.IOptionsMonitor<AuthenticationSchemeOptions> options,
+            Microsoft.Extensions.Logging.ILoggerFactory logger,
+            System.Text.Encodings.Web.UrlEncoder encoder)
+            : base(options, logger, encoder)
+        {
+        }
+
+        protected override Task<AuthenticateResult> HandleAuthenticateAsync()
+        {
+            var claims = new[]
+            {
+                new System.Security.Claims.Claim(
+                    ApiKeyAuthenticationOptions.DefaultScopeClaimType, "orders:read"),
+            };
+            var identity = new System.Security.Claims.ClaimsIdentity(claims, SchemeName);
+            var principal = new System.Security.Claims.ClaimsPrincipal(identity);
+            var ticket = new AuthenticationTicket(principal, SchemeName);
+            return Task.FromResult(AuthenticateResult.Success(ticket));
+        }
+    }
 }
