@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>OrionLedger.AspNetCore</PackageId>
+    <RootNamespace>Moongazing.OrionLedger.AspNetCore</RootNamespace>
+    <Description>ASP.NET Core authentication for OrionLedger. An AuthenticationHandler reads the API key from a configurable header, verifies it through OrionLedger (hash lookup, revoked/expired/scope checks, last-used update), and establishes a ClaimsPrincipal carrying the key's subject and scopes. Projects scopes into claims so [Authorize(Policy=...)] and a require-scope helper work with standard ASP.NET Core authorization. Registers through AddAuthentication().AddOrionLedgerApiKey().</Description>
+    <PackageTags>api-key;apikey;authentication;authorization;aspnetcore;scopes;orion</PackageTags>
+  </PropertyGroup>
+  <!--
+    The handler targets the ASP.NET Core authentication abstractions, which ship in the
+    Microsoft.AspNetCore.App shared framework. Referencing the framework (rather than individual
+    Microsoft.AspNetCore.Authentication.* packages) is the supported way to build an ASP.NET Core
+    integration library and keeps the dependency surface to the shared framework the host already
+    provides. No version is pinned per TFM: the shared framework version is selected by the consumer's
+    target framework, the same net8/9/10 split the rest of the family multi-targets.
+  -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="..\Moongazing.OrionLedger\Moongazing.OrionLedger.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(IsPackable)' == 'true'">
+    <!-- Directory.Build.props already packs docs/icon.png to \icon.png for every packable project, so
+         the icon is inherited and must not be re-added. It also packs the repository-root README to
+         \README.md; remove that and pack this package's own README instead so the NuGet page is
+         package specific. -->
+    <None Remove="$(MSBuildProjectDirectory)\..\..\README.md" />
+    <None Include="$(MSBuildProjectDirectory)\README.md" Pack="true" PackagePath="\" Visible="false" />
+  </ItemGroup>
+</Project>

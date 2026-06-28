@@ -4,11 +4,13 @@
 > current release may be reshaped, reordered, or dropped. While the major version is `0` the public
 > surface can still change between minor versions.
 
-OrionLedger is at `0.3.0`: an API key lifecycle library that issues prefixed, high-entropy tokens,
+OrionLedger is at `0.4.0`: an API key lifecycle library that issues prefixed, high-entropy tokens,
 stores only their hash, and verifies a presented key against prefix, hash, expiry, revocation, and
 scope, with rotation, bulk revoke by subject, last-verified tracking, telemetry, and a fault-safe
-observer. Durable storage now has a reference EF Core store (`OrionLedger.EntityFrameworkCore`) and a
-reusable store contract test suite (`OrionLedger.Conformance`).
+observer. Durable storage has a reference EF Core store (`OrionLedger.EntityFrameworkCore`) and a
+reusable store contract test suite (`OrionLedger.Conformance`). ASP.NET Core hosts get an
+authentication handler that verifies the key and maps its scopes to authorization
+(`OrionLedger.AspNetCore`).
 
 If one of the directions below matters for your use case, open an issue. Concrete demand is the best
 signal for what to build next.
@@ -16,6 +18,19 @@ signal for what to build next.
 ---
 
 ## Released
+
+### 0.4.0 (2026-06-28) - ASP.NET Core integration
+
+- New package `OrionLedger.AspNetCore`: an `AuthenticationHandler` that reads the API key from a
+  configurable header (default `X-Api-Key`), calls `VerifyAsync`, and maps the `ApiKeyStatus` to an
+  authentication result. A `Valid` key yields a `ClaimsPrincipal` carrying the key's id, subject, and
+  one claim per scope; any other status fails authentication with no principal (the framework returns
+  `401`), and a missing header is `NoResult` so other schemes and anonymous endpoints are undisturbed.
+- Scope-to-policy mapping (`ApiKeyScopeRequirement` plus its handler) so an authorization policy can
+  require a scope without the endpoint re-checking it, with `RequireApiKeyScope` /
+  `AddApiKeyScopePolicy` helpers covering both require-any and require-all multi-scope checks.
+- Registration through `AddAuthentication().AddOrionLedgerApiKey(...)`, consistent with ASP.NET Core
+  auth conventions. References the `Microsoft.AspNetCore.App` shared framework; `net8/9/10`.
 
 ### 0.3.0 (2026-06-22) - durable storage
 
@@ -65,18 +80,6 @@ signal for what to build next.
 ---
 
 ## Next
-
-### 0.4.0 - ASP.NET Core integration (target 2026-08)
-
-Today consumers wire the header read and the `VerifyAsync` call themselves. An authentication handler
-removes that boilerplate for the common case.
-
-- An `AuthenticationHandler` that reads a key from a configurable header, calls `VerifyAsync`, and
-  maps the `ApiKeyStatus` to an authentication result, surfacing the matched record as claims.
-- A scope-to-policy mapping so an authorization policy can require a scope without the endpoint
-  re-checking it.
-- Multi-scope checks (require all / require any) beyond today's single `requiredScope`, used by both
-  the handler and direct callers.
 
 ### 0.5.0 - hashing and secrets options (target 2026-09)
 

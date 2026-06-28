@@ -254,6 +254,34 @@ fields: `RevokedAt`, `LastUsedAt`, `LastUsedCount`, and the rotation timestamps 
 `SupersededById`, `RetiresAt`). `FindBySubjectAsync` is a default interface method, so stores written
 against 0.1.0 keep compiling; override it only to enable bulk revoke by subject.
 
+### ASP.NET Core
+
+For an ASP.NET Core host, add
+[`OrionLedger.AspNetCore`](https://www.nuget.org/packages/OrionLedger.AspNetCore/). It ships an
+authentication handler that reads the key from a configurable header (default `X-Api-Key`), verifies
+it through OrionLedger, and on success builds a `ClaimsPrincipal` carrying the key's subject and
+scopes. Scopes are projected into claims, so a standard authorization policy can require a scope
+without the endpoint re-checking it.
+
+```csharp
+builder.Services.AddOrionLedger();
+
+builder.Services
+    .AddAuthentication(ApiKeyAuthenticationOptions.DefaultScheme)
+    .AddOrionLedgerApiKey();
+
+builder.Services.AddAuthorization(options =>
+    options.AddApiKeyScopePolicy("orders-read", "orders:read"));
+
+app.UseAuthentication();
+app.UseAuthorization();
+app.MapGet("/orders", () => "ok").RequireAuthorization("orders-read");
+```
+
+A revoked, expired, or unknown key fails authentication with no principal (the framework returns
+`401`); a valid key that lacks the required scope is forbidden (`403`). See the package README for
+the full set of options and the require-all / require-any helpers.
+
 ## Configuration
 
 Configure issuance through `ApiKeyOptions` in the `AddOrionLedger` callback. Options are validated
