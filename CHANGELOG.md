@@ -6,6 +6,18 @@ All notable changes to OrionLedger are documented in this file. The format is ba
 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-06-28
+
+### Added
+
+- New package `OrionLedger.AspNetCore`: an ASP.NET Core authentication handler that reads the API key from a configurable request header (default `X-Api-Key`), verifies it through `IApiKeyService` (hash lookup, revoked / expired / retired checks, and the last-used stamp), and on a `Valid` result establishes a `ClaimsPrincipal` carrying the key's id, subject, and one claim per granted scope. Any other status fails authentication with no principal, so the framework returns `401`; a missing header yields `NoResult` so other schemes and anonymous endpoints are undisturbed.
+- Scope-to-policy mapping: `ApiKeyScopeRequirement` and its authorization handler project the verified key's scope claims into standard ASP.NET Core authorization, so `[Authorize(Policy = ...)]` can gate an endpoint on a scope without the endpoint re-checking it. Helpers `RequireApiKeyScope` (on `AuthorizationPolicyBuilder`, require-any or require-all) and `AddApiKeyScopePolicy` (on `AuthorizationOptions`) build scope policies.
+- Registration extension `AddAuthentication().AddOrionLedgerApiKey(...)`, consistent with ASP.NET Core auth conventions, which adds the scheme and the scope authorization handler. Header name and the subject / key-id / scope claim types are configurable on `ApiKeyAuthenticationOptions`. The package references the `Microsoft.AspNetCore.App` shared framework and multi-targets `net8.0` / `net9.0` / `net10.0`.
+
+### Tests
+
+- A valid key authenticates and the principal carries the subject and scopes; revoked, expired, and unknown keys are rejected with no principal; last-used is updated on a successful verify; a custom header name is honoured. End-to-end through a `TestServer` pipeline: a scope-protected endpoint allows a key holding the scope (`200`), forbids a valid key without it (`403`), and rejects a revoked or absent key (`401`). The scope authorization handler is covered for require-any and require-all. All run against an in-memory `IApiKeyStore` and the real `ApiKeyService`.
+
 ## [0.3.0] - 2026-06-22
 
 ### Added
@@ -56,6 +68,7 @@ Initial release. API key lifecycle.
 20 tests across the token and hash primitives, the service (issue, verify, expiry, default
 lifetime, revoke, scope, hash-at-rest), and registration.
 
+[0.4.0]: https://github.com/tunahanaliozturk/OrionLedger/releases/tag/v0.4.0
 [0.3.0]: https://github.com/tunahanaliozturk/OrionLedger/releases/tag/v0.3.0
 [0.2.1]: https://github.com/tunahanaliozturk/OrionLedger/releases/tag/v0.2.1
 [0.2.0]: https://github.com/tunahanaliozturk/OrionLedger/releases/tag/v0.2.0

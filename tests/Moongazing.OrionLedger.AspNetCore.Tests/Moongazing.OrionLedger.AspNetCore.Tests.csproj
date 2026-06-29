@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <!-- xunit fact names use snake_case for readability; CA1707 (no underscores) does not apply to tests.
+         CA1861 (hoist constant array arguments to static readonly fields) is a micro-optimization that
+         hurts readability for the inline scope arrays these tests pass to issue/verify; not worth it in
+         test code that runs once. -->
+    <NoWarn>$(NoWarn);CA1707;CA1861</NoWarn>
+  </PropertyGroup>
+  <!-- The handler and the end-to-end host/authorization tests run against the ASP.NET Core shared
+       framework (DefaultHttpContext, TestServer, the authentication and authorization middleware),
+       so reference it the same way the package under test does. -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+  <!--
+    Microsoft.AspNetCore.TestHost ships the TestServer compile-time reference, which the shared
+    framework does not expose for referencing. Its major must track the target framework (the 9.0.x
+    /10.0.x packages do not restore on net8.0), so pin one matching major per TFM, the same split the
+    rest of the family's multi-targeted test projects use. It runs the end-to-end pipeline only and
+    ships in nothing (this project is IsPackable=false).
+  -->
+  <ItemGroup Condition="'$(TargetFramework)' == 'net8.0'">
+    <PackageReference Include="Microsoft.AspNetCore.TestHost" Version="8.0.10" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net9.0'">
+    <PackageReference Include="Microsoft.AspNetCore.TestHost" Version="9.0.0" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
+    <PackageReference Include="Microsoft.AspNetCore.TestHost" Version="10.0.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Moongazing.OrionLedger\Moongazing.OrionLedger.csproj" />
+    <ProjectReference Include="..\..\src\Moongazing.OrionLedger.AspNetCore\Moongazing.OrionLedger.AspNetCore.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+</Project>
