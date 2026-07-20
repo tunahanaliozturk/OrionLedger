@@ -8,13 +8,13 @@ All notable changes to OrionLedger are documented in this file. The format is ba
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-20
+
 ### Security
 
 - Pinned `SQLitePCLRaw.bundle_e_sqlite3` to `2.1.12` in the EF Core test project to clear [GHSA-2m69-gcr7-jv3q](https://github.com/advisories/GHSA-2m69-gcr7-jv3q) (High) in the bundled SQLite native library. `Microsoft.EntityFrameworkCore.Sqlite` was resolving the vulnerable `SQLitePCLRaw.lib.e_sqlite3` transitively at `2.1.6` (net8.0), `2.1.10` (net9.0), and `2.1.11` (net10.0); the explicit bundle reference lifts `core`, `lib.e_sqlite3`, and `provider.e_sqlite3` to the patched `2.1.12` on every target framework.
 - This reaches only the test project, which is `IsPackable=false`. No shipped package and no released version of OrionLedger is affected: the published `OrionLedger.EntityFrameworkCore` depends on `Microsoft.EntityFrameworkCore.Relational`, which does not reference SQLitePCLRaw, so the vulnerable native library was never part of any artifact consumers restore.
 - Removed the accompanying `NU1903` suppression from the test project. It was added when no patched `2.1.x` release existed; now that the fix is pinned, the vulnerability audit passes on its own merits, and leaving the suppression in place would have silently swallowed the next advisory.
-
-## [0.4.0] - 2026-06-28
 
 ### Added
 
