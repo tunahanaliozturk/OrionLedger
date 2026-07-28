@@ -103,7 +103,7 @@ public sealed class ApiKeyService : IApiKeyService
         };
 
         await store.AddAsync(record, cancellationToken).ConfigureAwait(false);
-        diagnostics.Issued.Add(1);
+        diagnostics.RecordIssued();
         SafeObserve(() => observer.OnIssued(record));
 
         return new IssuedApiKey(token, record);
@@ -186,7 +186,7 @@ public sealed class ApiKeyService : IApiKeyService
         }
 
         await store.UpdateAsync(predecessor, cancellationToken).ConfigureAwait(false);
-        diagnostics.Rotated.Add(1);
+        diagnostics.RecordRotated();
         SafeObserve(() => observer.OnRotated(predecessor, successor.Record));
 
         return new KeyRotation(successor, predecessor);
@@ -228,7 +228,7 @@ public sealed class ApiKeyService : IApiKeyService
     {
         record.RevokedAt = now();
         await store.UpdateAsync(record, cancellationToken).ConfigureAwait(false);
-        diagnostics.Revoked.Add(1);
+        diagnostics.RecordRevoked();
         SafeObserve(() => observer.OnRevoked(record));
     }
 

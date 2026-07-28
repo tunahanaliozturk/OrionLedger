@@ -335,10 +335,10 @@ OrionLedger publishes an OpenTelemetry meter named `Moongazing.OrionLedger`
 
 | Instrument | Kind | Tags | Meaning |
 |------------|------|------|---------|
-| `orionledger.keys.issued` | counter | - | Keys issued |
-| `orionledger.verifications` | counter | `status` | Verification attempts, tagged with the status tag (`valid`, `malformed`, `not_found`, `expired`, `revoked`, `retired`, `missing_scope`) |
-| `orionledger.keys.revoked` | counter | - | Keys revoked |
-| `orionledger.keys.rotated` | counter | - | Keys rotated |
+| `orion.ledger.keys.issued` | counter | - | Keys issued |
+| `orion.ledger.verifications` | counter | `status` | Verification attempts, tagged with the status tag (`valid`, `malformed`, `not_found`, `expired`, `revoked`, `retired`, `missing_scope`) |
+| `orion.ledger.keys.revoked` | counter | - | Keys revoked |
+| `orion.ledger.keys.rotated` | counter | - | Keys rotated |
 
 Subscribe with the usual OpenTelemetry metrics pipeline:
 
@@ -383,7 +383,7 @@ host machine.
 ## Versioning
 
 OrionLedger follows semantic versioning. The packages multi-target `net8.0`, `net9.0`, and
-`net10.0`. The current line is `0.4.0`; while the major version is `0`, the public surface may still
+`net10.0`. The current line is `0.5.0`; while the major version is `0`, the public surface may still
 change between minor versions. Notable changes are recorded in [CHANGELOG.md](CHANGELOG.md).
 
 ## Contributing

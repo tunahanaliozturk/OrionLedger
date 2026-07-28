@@ -86,8 +86,8 @@ is present.
 
 ## Telemetry and audit
 
-Subscribe to the `Moongazing.OrionLedger` meter: `orionledger.keys.issued`,
-`orionledger.verifications` (tagged `status`), and `orionledger.keys.revoked`. For an audit trail,
+Subscribe to the `Moongazing.OrionLedger` meter: `orion.ledger.keys.issued`,
+`orion.ledger.verifications` (tagged `status`), and `orion.ledger.keys.revoked`. For an audit trail,
 register an `IApiKeyEventObserver` to be notified on issue, verify, and revoke. The observer is
 fault-safe: an exception it throws never blocks the lifecycle operation.
 

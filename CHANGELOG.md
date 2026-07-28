@@ -8,6 +8,31 @@ All notable changes to OrionLedger are documented in this file. The format is ba
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-07-28
+
+### Changed
+
+- **Converged the OpenTelemetry instrumentation onto the frozen `Orion.Abstractions` 1.0 spine.**
+  `ApiKeyDiagnostics` now derives from `OrionInstrumentation` and names its metrics through
+  `OrionTelemetry`, so OrionLedger shares the family's naming and static-tag conventions. Recording
+  moved behind `RecordIssued` / `RecordRevoked` / `RecordRotated` / `RecordVerification` so
+  multi-tenant / multi-region labels set via `OrionInstrumentation.SetStaticTags` are stamped onto
+  every measurement, and the meter version now tracks the package version automatically (it was
+  pinned at a stale `0.2.0` literal). References `Orion.Abstractions` 1.0.0.
+
+  **Breaking (telemetry only): metric names changed.** The meter name is unchanged
+  (`Moongazing.OrionLedger` — subscribers keep working). Update dashboards/alerts:
+
+  | Before | After |
+  | --- | --- |
+  | `orionledger.keys.issued` | `orion.ledger.keys.issued` |
+  | `orionledger.verifications` | `orion.ledger.verifications` |
+  | `orionledger.keys.revoked` | `orion.ledger.keys.revoked` |
+  | `orionledger.keys.rotated` | `orion.ledger.keys.rotated` |
+
+  The `status` tag and its values are unchanged, as are the public `Issued` / `Verifications` /
+  `Revoked` / `Rotated` instruments and the `MeterName` constant.
+
 ## [0.4.0] - 2026-07-20
 
 ### Security
@@ -76,6 +101,7 @@ Initial release. API key lifecycle.
 20 tests across the token and hash primitives, the service (issue, verify, expiry, default
 lifetime, revoke, scope, hash-at-rest), and registration.
 
+[0.5.0]: https://github.com/tunahanaliozturk/OrionLedger/releases/tag/v0.5.0
 [0.4.0]: https://github.com/tunahanaliozturk/OrionLedger/releases/tag/v0.4.0
 [0.3.0]: https://github.com/tunahanaliozturk/OrionLedger/releases/tag/v0.3.0
 [0.2.1]: https://github.com/tunahanaliozturk/OrionLedger/releases/tag/v0.2.1

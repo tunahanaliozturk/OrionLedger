@@ -137,13 +137,13 @@ public sealed class ApiKeyServiceObservabilityTests
         {
             switch (instrument.Name)
             {
-                case "orionledger.keys.issued":
+                case "orion.ledger.keys.issued":
                     Interlocked.Add(ref issued, measurement);
                     break;
-                case "orionledger.keys.revoked":
+                case "orion.ledger.keys.revoked":
                     Interlocked.Add(ref revoked, measurement);
                     break;
-                case "orionledger.verifications":
+                case "orion.ledger.verifications":
                     var status = "unknown";
                     foreach (var tag in tags)
                     {

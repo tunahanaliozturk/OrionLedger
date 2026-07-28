@@ -211,11 +211,11 @@ reasoning does not transfer to user passwords, which need a deliberately slow ha
 
 | Instrument | Unit | Tags | Increments on |
 |------------|------|------|---------------|
-| `orionledger.keys.issued` | `{key}` | - | Each issued key |
-| `orionledger.verifications` | `{verification}` | `status` | Each verification attempt |
-| `orionledger.keys.revoked` | `{key}` | - | Each revoked key |
+| `orion.ledger.keys.issued` | `{key}` | - | Each issued key |
+| `orion.ledger.verifications` | `{verification}` | `status` | Each verification attempt |
+| `orion.ledger.keys.revoked` | `{key}` | - | Each revoked key |
 
-The `status` tag on `orionledger.verifications` takes one of `valid`, `malformed`, `not_found`,
+The `status` tag on `orion.ledger.verifications` takes one of `valid`, `malformed`, `not_found`,
 `expired`, `revoked`, `missing_scope`. Subscribe with the standard metrics pipeline:
 
 ```csharp
@@ -276,4 +276,4 @@ implementation first.
 - Nullable reference types enabled; implicit usings enabled.
 - `TreatWarningsAsErrors` with latest recommended analyzers and enforced code style.
 - XML documentation is generated and shipped with the package.
-- The only runtime dependency is `Microsoft.Extensions.DependencyInjection.Abstractions`.
+- The runtime dependencies are `Microsoft.Extensions.DependencyInjection.Abstractions` and `Orion.Abstractions` (the family's shared contracts spine).
