@@ -1,0 +1,130 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="964" viewBox="0 0 1200 964">
+  <!--
+    Orion family diagram template. Copy it, keep <defs> and <style>, replace the body.
+    Classes: .step (our code) .ext (backend / external system) .ok (success end) .fail (failure path)
+             .decision (diamond) .note (side remark) .lane (sequence lifeline)
+    Arrows: class="flow" (main path), "flow alt" (alternate / failure path, dashed), "flow back" (response).
+  -->
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#64748b"/>
+    </marker>
+    <marker id="arrow-fail" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#dc2626"/>
+    </marker>
+  </defs>
+  <style>
+    text { font-family: "Segoe UI", Inter, "Helvetica Neue", Arial, sans-serif; fill: #1e1b4b; }
+    .title { font-size: 24px; font-weight: 700; }
+    .subtitle { font-size: 14px; fill: #475569; }
+    .label { font-size: 15px; font-weight: 600; }
+    .small { font-size: 12.5px; fill: #475569; }
+    .code { font-family: "Cascadia Code", Consolas, "SF Mono", monospace; font-size: 13px; fill: #3730a3; }
+    .edge { font-size: 12.5px; fill: #334155; }
+    .step { fill: #eef2ff; stroke: #4f46e5; stroke-width: 2; }
+    .ext { fill: #f0f9ff; stroke: #0284c7; stroke-width: 2; }
+    .ok { fill: #ecfdf5; stroke: #059669; stroke-width: 2; }
+    .fail { fill: #fef2f2; stroke: #dc2626; stroke-width: 2; }
+    .decision { fill: #fffbeb; stroke: #d97706; stroke-width: 2; }
+    .note { fill: #f8fafc; stroke: #cbd5e1; stroke-width: 1.5; stroke-dasharray: 4 3; }
+    .lane { stroke: #cbd5e1; stroke-width: 1.5; stroke-dasharray: 6 5; }
+    .flow { fill: none; stroke: #64748b; stroke-width: 2; marker-end: url(#arrow); }
+    .flow.alt { stroke: #dc2626; stroke-dasharray: 6 4; marker-end: url(#arrow-fail); }
+    .flow.back { stroke-dasharray: 6 4; }
+    .badge { fill: #4f46e5; }
+    .badge-text { font-size: 12px; font-weight: 700; fill: #ffffff; }
+  </style>
+
+  <rect width="1200" height="964" fill="#ffffff"/>
+
+  <text class="title" x="40" y="52">OrionLedger - rotate, retire and revoke a key</text>
+  <text class="subtitle" x="40" y="78">RotateAsync issues a successor and supersedes the old key; with a grace window both tokens verify until RetiresAt.</text>
+
+  <!-- row 1: rotation -->
+  <rect class="step" x="40" y="150" width="190" height="80" rx="14"/>
+  <text class="label" x="135" y="184" text-anchor="middle">Active key</text>
+  <text class="small" x="135" y="206" text-anchor="middle">verifies as Valid</text>
+  <path class="flow" d="M230,190 L253,190"/>
+
+  <polygon class="decision" points="400,135 545,190 400,245 255,190"/>
+  <text class="code" x="400" y="186" text-anchor="middle">RotateAsync(id, grace)</text>
+  <text class="small" x="400" y="206" text-anchor="middle">rotatable?</text>
+
+  <path class="flow alt" d="M400,245 L400,298"/>
+  <text class="edge" x="410" y="276">no</text>
+  <rect class="fail" x="290" y="300" width="220" height="80" rx="14"/>
+  <text class="label" x="400" y="328" text-anchor="middle">returns null</text>
+  <text class="small" x="400" y="348" text-anchor="middle">missing, revoked, expired</text>
+  <text class="small" x="400" y="366" text-anchor="middle">or already superseded</text>
+
+  <path class="flow" d="M545,190 L578,190"/>
+  <text class="edge" x="561" y="180" text-anchor="middle">yes</text>
+  <rect class="step" x="580" y="145" width="260" height="90" rx="14"/>
+  <text class="label" x="710" y="175" text-anchor="middle">Issue successor</text>
+  <text class="code" x="710" y="199" text-anchor="middle">new id, secret and hash</text>
+  <text class="small" x="710" y="220" text-anchor="middle">same Name, Subject, Scopes, ExpiresAt</text>
+
+  <path class="flow" d="M840,190 L898,190"/>
+  <rect class="step" x="900" y="145" width="260" height="90" rx="14"/>
+  <text class="label" x="1030" y="175" text-anchor="middle">Supersede predecessor</text>
+  <text class="code" x="1030" y="199" text-anchor="middle">SupersededAt, SupersededById</text>
+  <text class="small" x="1030" y="220" text-anchor="middle">new token returned once on .Token</text>
+
+  <path class="flow" d="M1030,235 L1030,288"/>
+  <polygon class="decision" points="1030,290 1140,340 1030,390 920,340"/>
+  <text class="code" x="1030" y="345" text-anchor="middle" style="font-variant-ligatures: none">grace &gt; 0?</text>
+
+  <path class="flow alt" d="M920,340 L792,340"/>
+  <text class="edge" x="856" y="330" text-anchor="middle">null or zero</text>
+  <rect class="fail" x="560" y="300" width="230" height="80" rx="14"/>
+  <text class="label" x="675" y="332" text-anchor="middle">Revoked at once</text>
+  <text class="code" x="675" y="356" text-anchor="middle">RevokedAt = now</text>
+
+  <path class="flow" d="M1030,390 L1030,448"/>
+  <text class="edge" x="1040" y="424">yes</text>
+  <rect class="step" x="900" y="450" width="260" height="90" rx="14"/>
+  <text class="label" x="1030" y="480" text-anchor="middle">Grace window</text>
+  <text class="code" x="1030" y="504" text-anchor="middle">RetiresAt = now + grace</text>
+  <text class="small" x="1030" y="525" text-anchor="middle">old and new token both verify Valid</text>
+
+  <path class="flow alt" d="M1030,540 L1030,598"/>
+  <text class="edge" x="1040" y="574">RetiresAt reached</text>
+  <rect class="fail" x="900" y="600" width="260" height="70" rx="14"/>
+  <text class="label" x="1030" y="630" text-anchor="middle">Retired</text>
+  <text class="small" x="1030" y="652" text-anchor="middle">old token verifies as Retired</text>
+
+  <rect class="note" x="40" y="430" width="500" height="130" rx="10"/>
+  <text class="small" x="56" y="458">Only an active, unexpired, not yet superseded key can be rotated, so a</text>
+  <text class="small" x="56" y="480">rotation chain never forks. The successor keeps the absolute ExpiresAt;</text>
+  <text class="small" x="56" y="502">DefaultLifetime is not applied again.</text>
+  <text class="small" x="56" y="530">Each rotation counts orion.ledger.keys.rotated and calls</text>
+  <text class="small" x="56" y="550">IApiKeyEventObserver.OnRotated(predecessor, successor).</text>
+
+  <!-- row 2: other ends -->
+  <path class="lane" d="M40,690 L860,690"/>
+  <text class="label" x="40" y="722">Other ways a key stops verifying</text>
+
+  <rect class="step" x="40" y="740" width="320" height="80" rx="14"/>
+  <text class="code" x="200" y="772" text-anchor="middle">RevokeAsync(id)</text>
+  <text class="small" x="200" y="796" text-anchor="middle">false when missing or already revoked</text>
+
+  <rect class="step" x="400" y="740" width="360" height="80" rx="14"/>
+  <text class="code" x="580" y="772" text-anchor="middle">RevokeAllForSubjectAsync(subject)</text>
+  <text class="small" x="580" y="796" text-anchor="middle">revokes the subject's active keys, returns the count</text>
+
+  <rect class="step" x="800" y="740" width="360" height="80" rx="14"/>
+  <text class="label" x="980" y="772" text-anchor="middle">ExpiresAt reached</text>
+  <text class="small" x="980" y="796" text-anchor="middle">no call needed; checked on every verify</text>
+
+  <path class="flow alt" d="M200,820 L200,868"/>
+  <path class="flow alt" d="M580,820 L580,868"/>
+  <path class="flow alt" d="M980,820 L980,868"/>
+
+  <rect class="fail" x="40" y="870" width="720" height="64" rx="14"/>
+  <text class="label" x="400" y="898" text-anchor="middle">Revoked</text>
+  <text class="small" x="400" y="919" text-anchor="middle">RevokedAt = now; the key verifies as Revoked and the record is returned</text>
+
+  <rect class="fail" x="800" y="870" width="360" height="64" rx="14"/>
+  <text class="label" x="980" y="898" text-anchor="middle">Expired</text>
+  <text class="small" x="980" y="919" text-anchor="middle">verifies as Expired; RotateAsync returns null</text>
+</svg>

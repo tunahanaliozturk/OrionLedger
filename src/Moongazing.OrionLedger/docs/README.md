@@ -1,103 +1,72 @@
 # OrionLedger
 
-[![CI/CD](https://github.com/tunahanaliozturk/OrionLedger/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/tunahanaliozturk/OrionLedger/actions/workflows/ci-cd.yml)
-[![NuGet](https://img.shields.io/nuget/v/OrionLedger.svg)](https://www.nuget.org/packages/OrionLedger/)
+API key lifecycle for .NET: issue prefixed, high-entropy keys, store only their SHA-256 hash, verify a presented key to a single status, rotate and revoke keys, and track when each key was last used.
 
-API key lifecycle for .NET. Issue prefixed, high-entropy keys; store only their hash; verify a
-presented key against scope, expiry, and revocation; and track when each key was last used.
-
-Part of the **Orion** family. Usable entirely on its own.
-
-## Why
-
-Rolling your own API keys invites two classic mistakes: storing the key in a form an attacker who
-reads your database can use, and treating verification as a string compare that ignores expiry,
-revocation, and scope. OrionLedger generates keys the way payment providers do (a recognisable
-prefix plus 256 bits of randomness), stores only a SHA-256 hash, and resolves verification to a
-single status you can switch on.
+![How OrionLedger issues a key and verifies it: generate, hash and store the record, return the token once; verification checks prefix, hash lookup, revocation, retirement, expiry and scope in order](https://raw.githubusercontent.com/tunahanaliozturk/OrionLedger/main/docs/diagrams/issue-verify.png)
 
 ## Install
 
-```
-dotnet add package OrionLedger
-```
+    dotnet add package OrionLedger
 
 ## Quick start
 
 ```csharp
+using Moongazing.OrionLedger;
+using Moongazing.OrionLedger.Keys;
+
 builder.Services.AddOrionLedger(o =>
 {
     o.Prefix = "ork_live_";
     o.DefaultLifetime = TimeSpan.FromDays(90);   // optional
 });
-```
 
-Issue a key (show the plaintext once, store nothing but the record):
+// Issue: the plaintext token exists only here. Show it once, keep only issued.Record.
+IssuedApiKey issued = await keys.IssueAsync("Acme Corp", scopes: ["orders:read", "orders:write"]);
+string token = issued.Token;
 
-```csharp
-var issued = await keys.IssueAsync("Acme Corp", scopes: ["orders:read", "orders:write"]);
-return Results.Ok(new { apiKey = issued.Token });   // the ONLY time the token exists in plaintext
-```
-
-Verify a presented key:
-
-```csharp
-var result = await keys.VerifyAsync(presentedToken, requiredScope: "orders:write");
+// Verify a presented token, optionally requiring a scope.
+ApiKeyVerification result = await keys.VerifyAsync(token, requiredScope: "orders:write");
 if (!result.IsValid)
 {
-    return result.Status switch
-    {
-        ApiKeyStatus.Expired      => Results.StatusCode(401),
-        ApiKeyStatus.Revoked      => Results.StatusCode(401),
-        ApiKeyStatus.MissingScope => Results.StatusCode(403),
-        _                         => Results.StatusCode(401),
-    };
+    // Malformed, NotFound, Revoked, Retired, Expired or MissingScope
 }
-
-var tenant = result.Record!.Name;
 ```
 
-Revoke a key:
+`keys` is the `IApiKeyService` that `AddOrionLedger` registers.
 
-```csharp
-await keys.RevokeAsync(keyId);
-```
+## Lifecycle
 
-## Verification statuses
+- `IssueAsync(name, scopes, expiresAt, subject)` returns an `IssuedApiKey`; `Token` is the only plaintext copy.
+- `VerifyAsync(token, requiredScope)` returns an `ApiKeyVerification` with `Status`, `IsValid` and the matched `Record` (null only for `Malformed` and `NotFound`). A `Valid` result stamps `LastUsedAt` and increments `LastUsedCount`.
+- `RotateAsync(id, grace)` issues a successor with the same name, subject, scopes and expiry. With a positive grace the old token keeps verifying until `RetiresAt`, then resolves as `Retired`; with no grace it is revoked at once. Returns null for a missing, revoked, expired or already rotated key.
+- `RevokeAsync(id)` returns `false` when the key is missing or already revoked. `RevokeAllForSubjectAsync(subject)` revokes every active key of a subject and returns the count.
 
-| Status | Meaning |
-|--------|---------|
-| `Valid` | Known, active, unexpired, scope present; last-used updated |
-| `Malformed` | Empty, or missing the configured prefix |
-| `NotFound` | No key with this token hash |
-| `Expired` | Past its expiry |
-| `Revoked` | Revoked |
-| `MissingScope` | Otherwise valid but lacks the required scope |
+## Options
 
-For every status except `Malformed` and `NotFound` the matched record is returned, so you can log
-which key was rejected.
+`ApiKeyOptions`, validated inside `AddOrionLedger` (an invalid value throws there):
+
+- `Prefix` - prepended to every token; must not be empty. Default `ork_`.
+- `SecretByteLength` - random bytes in the secret; at least 16. Default 32 (256 bits).
+- `DefaultLifetime` - expiry for keys issued without `expiresAt`; positive when set. Default null (no expiry).
 
 ## Storage
 
-The default `InMemoryApiKeyStore` is process-local. To persist keys and share them across
-instances, implement `IApiKeyStore` (four methods: add, find-by-hash, find-by-id, update) over
-your database and register it before `AddOrionLedger()`; the in-memory store is only added if none
-is present.
+The default `InMemoryApiKeyStore` is process-local. Register your own `IApiKeyStore` before `AddOrionLedger()` to replace it, or install `OrionLedger.EntityFrameworkCore`. Bulk revoke needs the store to override `IApiKeyStore.FindBySubjectAsync`; the default throws `NotSupportedException`.
 
 ## Telemetry and audit
 
-Subscribe to the `Moongazing.OrionLedger` meter: `orion.ledger.keys.issued`,
-`orion.ledger.verifications` (tagged `status`), and `orion.ledger.keys.revoked`. For an audit trail,
-register an `IApiKeyEventObserver` to be notified on issue, verify, and revoke. The observer is
-fault-safe: an exception it throws never blocks the lifecycle operation.
+- Meter `Moongazing.OrionLedger` (`ApiKeyDiagnostics.MeterName`): counters `orion.ledger.keys.issued`, `orion.ledger.verifications` (tag `status`), `orion.ledger.keys.revoked` and `orion.ledger.keys.rotated`. Built on `OrionInstrumentation` from `Orion.Abstractions`.
+- `IApiKeyEventObserver` gets `OnIssued`, `OnVerified`, `OnRevoked` and `OnRotated`. An exception it throws is swallowed and never blocks the operation.
+- Targets net8.0, net9.0 and net10.0. A NativeAOT publish of the lifecycle is smoke-tested in CI.
 
-## Design
+## Related packages
 
-- Multi-targets `net8.0`, `net9.0`, `net10.0`.
-- `TreatWarningsAsErrors`, latest analyzers, nullable enabled.
-- Keys are 256-bit random by default; only their SHA-256 hash is stored. Hash comparison uses a
-  fixed-time helper.
+- `OrionLedger.AspNetCore` - authentication handler that reads the key from a header and maps scopes to authorization policies.
+- `OrionLedger.EntityFrameworkCore` - durable `IApiKeyStore` over EF Core with an atomic last-used increment.
+- `OrionLedger.Conformance` - xUnit contract suite for a custom `IApiKeyStore`.
 
-## License
+## Links
 
-MIT.
+- Documentation and full README: https://github.com/tunahanaliozturk/OrionLedger
+- Changelog: https://github.com/tunahanaliozturk/OrionLedger/blob/main/CHANGELOG.md
+- License: MIT

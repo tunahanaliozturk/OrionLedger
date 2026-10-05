@@ -4,13 +4,13 @@
 > current release may be reshaped, reordered, or dropped. While the major version is `0` the public
 > surface can still change between minor versions.
 
-OrionLedger is at `0.4.0`: an API key lifecycle library that issues prefixed, high-entropy tokens,
+OrionLedger is at `0.5.0`: an API key lifecycle library that issues prefixed, high-entropy tokens,
 stores only their hash, and verifies a presented key against prefix, hash, expiry, revocation, and
 scope, with rotation, bulk revoke by subject, last-verified tracking, telemetry, and a fault-safe
 observer. Durable storage has a reference EF Core store (`OrionLedger.EntityFrameworkCore`) and a
 reusable store contract test suite (`OrionLedger.Conformance`). ASP.NET Core hosts get an
 authentication handler that verifies the key and maps its scopes to authorization
-(`OrionLedger.AspNetCore`).
+(`OrionLedger.AspNetCore`). Telemetry follows the family conventions of `Orion.Abstractions` 1.0.
 
 If one of the directions below matters for your use case, open an issue. Concrete demand is the best
 signal for what to build next.
@@ -19,7 +19,16 @@ signal for what to build next.
 
 ## Released
 
-### 0.4.0 (2026-06-28) - ASP.NET Core integration
+### 0.5.0 (2026-07-28) - Orion.Abstractions telemetry spine
+
+- `ApiKeyDiagnostics` derives from `OrionInstrumentation` and names its counters through
+  `OrionTelemetry`, so static tags set with `SetStaticTags` reach every measurement and the meter
+  version tracks the package version.
+- Breaking for dashboards only: the metric names moved from `orionledger.*` to `orion.ledger.*`
+  (`keys.issued`, `verifications`, `keys.revoked`, `keys.rotated`). The meter name
+  `Moongazing.OrionLedger` and the `status` tag are unchanged.
+
+### 0.4.0 (2026-07-20) - ASP.NET Core integration
 
 - New package `OrionLedger.AspNetCore`: an `AuthenticationHandler` that reads the API key from a
   configurable header (default `X-Api-Key`), calls `VerifyAsync`, and maps the `ApiKeyStatus` to an
@@ -57,7 +66,8 @@ signal for what to build next.
 - `ApiKeyGenerator.Generate` fills and base64url-encodes secret bytes in a stack or pooled buffer,
   removing the per-issue `byte[]` and intermediate string; uses `Base64Url.EncodeToString` on
   net9/net10. The emitted token is byte-for-byte identical.
-- The constant-time hash comparison in verification is unchanged.
+- `ApiKeyHasher.FixedTimeEquals` is unchanged. Verification looks keys up by hash and does not
+  compare hashes pairwise.
 
 ### 0.2.0 (2026-06-19) - lifecycle additions
 
@@ -81,7 +91,7 @@ signal for what to build next.
 
 ## Next
 
-### 0.5.0 - hashing and secrets options (target 2026-09)
+### Hashing and secrets options (next minor, no date set)
 
 SHA-256 is the right default for full-entropy random tokens. Some consumers have a compliance
 requirement to substitute the digest or add a server-side secret.
