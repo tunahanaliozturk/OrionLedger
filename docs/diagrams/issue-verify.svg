@@ -1,0 +1,151 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="975" viewBox="0 0 1200 975">
+  <!--
+    Orion family diagram template. Copy it, keep <defs> and <style>, replace the body.
+    Classes: .step (our code) .ext (backend / external system) .ok (success end) .fail (failure path)
+             .decision (diamond) .note (side remark) .lane (sequence lifeline)
+    Arrows: class="flow" (main path), "flow alt" (alternate / failure path, dashed), "flow back" (response).
+  -->
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#64748b"/>
+    </marker>
+    <marker id="arrow-fail" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#dc2626"/>
+    </marker>
+  </defs>
+  <style>
+    text { font-family: "Segoe UI", Inter, "Helvetica Neue", Arial, sans-serif; fill: #1e1b4b; }
+    .title { font-size: 24px; font-weight: 700; }
+    .subtitle { font-size: 14px; fill: #475569; }
+    .label { font-size: 15px; font-weight: 600; }
+    .small { font-size: 12.5px; fill: #475569; }
+    .code { font-family: "Cascadia Code", Consolas, "SF Mono", monospace; font-size: 13px; fill: #3730a3; }
+    .edge { font-size: 12.5px; fill: #334155; }
+    .step { fill: #eef2ff; stroke: #4f46e5; stroke-width: 2; }
+    .ext { fill: #f0f9ff; stroke: #0284c7; stroke-width: 2; }
+    .ok { fill: #ecfdf5; stroke: #059669; stroke-width: 2; }
+    .fail { fill: #fef2f2; stroke: #dc2626; stroke-width: 2; }
+    .decision { fill: #fffbeb; stroke: #d97706; stroke-width: 2; }
+    .note { fill: #f8fafc; stroke: #cbd5e1; stroke-width: 1.5; stroke-dasharray: 4 3; }
+    .lane { stroke: #cbd5e1; stroke-width: 1.5; stroke-dasharray: 6 5; }
+    .flow { fill: none; stroke: #64748b; stroke-width: 2; marker-end: url(#arrow); }
+    .flow.alt { stroke: #dc2626; stroke-dasharray: 6 4; marker-end: url(#arrow-fail); }
+    .flow.back { stroke-dasharray: 6 4; }
+    .badge { fill: #4f46e5; }
+    .badge-text { font-size: 12px; font-weight: 700; fill: #ffffff; }
+  </style>
+
+  <rect width="1200" height="975" fill="#ffffff"/>
+
+  <text class="title" x="40" y="52">OrionLedger - issue a key, then verify it</text>
+  <text class="subtitle" x="40" y="78">Issuance returns the plaintext token once and stores only its hash. Verification runs fixed checks in order and stops at the first failure.</text>
+
+  <path class="lane" d="M422,104 L422,945"/>
+
+  <!-- issue column -->
+  <text class="code" x="40" y="122">IssueAsync(name, scopes, expiresAt, subject)</text>
+
+  <rect class="step" x="40" y="140" width="320" height="90" rx="14"/>
+  <text class="label" x="200" y="172" text-anchor="middle">Generate the token</text>
+  <text class="code" x="200" y="196" text-anchor="middle">ApiKeyGenerator.Generate</text>
+  <text class="small" x="200" y="217" text-anchor="middle">Prefix + base64url(32 random bytes)</text>
+  <path class="flow" d="M200,230 L200,268"/>
+
+  <rect class="step" x="40" y="270" width="320" height="90" rx="14"/>
+  <text class="label" x="200" y="302" text-anchor="middle">Hash it</text>
+  <text class="code" x="200" y="326" text-anchor="middle">ApiKeyHasher.Hash</text>
+  <text class="small" x="200" y="347" text-anchor="middle">SHA-256, 64-char lowercase hex</text>
+  <path class="flow" d="M200,360 L200,398"/>
+
+  <rect class="step" x="40" y="400" width="320" height="90" rx="14"/>
+  <text class="label" x="200" y="432" text-anchor="middle">Store the record</text>
+  <text class="code" x="200" y="456" text-anchor="middle">IApiKeyStore.AddAsync</text>
+  <text class="small" x="200" y="477" text-anchor="middle">hash, display prefix, scopes, ExpiresAt</text>
+  <path class="flow" d="M200,490 L200,528"/>
+
+  <rect class="ok" x="40" y="530" width="320" height="90" rx="14"/>
+  <text class="label" x="200" y="562" text-anchor="middle">Return IssuedApiKey</text>
+  <text class="code" x="200" y="586" text-anchor="middle">.Token: plaintext, shown once</text>
+  <text class="small" x="200" y="607" text-anchor="middle">keep only .Record; the token is never stored</text>
+
+  <rect class="note" x="40" y="660" width="320" height="112" rx="10"/>
+  <text class="small" x="56" y="688">ExpiresAt is the explicit expiresAt, else</text>
+  <text class="small" x="56" y="710">CreatedAt + DefaultLifetime, else never.</text>
+  <text class="small" x="56" y="732">Defaults: Prefix "ork_",</text>
+  <text class="small" x="56" y="754">SecretByteLength 32 (256 bits).</text>
+
+  <!-- verify column -->
+  <text class="code" x="485" y="122">VerifyAsync(token, requiredScope)</text>
+  <polygon class="decision" points="600,133 715,175 600,217 485,175"/>
+  <text class="code" x="600" y="173" text-anchor="middle" style="font-variant-ligatures: none">starts with Prefix?</text>
+  <text class="small" x="600" y="191" text-anchor="middle">and not empty</text>
+  <path class="flow alt" d="M715,175 L798,175"/>
+  <text class="edge" x="757" y="167" text-anchor="middle">no</text>
+  <rect class="fail" x="800" y="145" width="360" height="60" rx="14"/>
+  <text class="label" x="980" y="170" text-anchor="middle">Malformed</text>
+  <text class="small" x="980" y="191" text-anchor="middle">no store lookup, no record</text>
+  <path class="flow" d="M600,217 L600,251"/>
+  <text class="edge" x="612" y="239">yes</text>
+
+  <polygon class="decision" points="600,253 715,295 600,337 485,295"/>
+  <text class="code" x="600" y="293" text-anchor="middle" style="font-variant-ligatures: none">FindByHashAsync</text>
+  <text class="small" x="600" y="311" text-anchor="middle">by Hash(token)</text>
+  <path class="flow alt" d="M715,295 L798,295"/>
+  <text class="edge" x="757" y="287" text-anchor="middle">null</text>
+  <rect class="fail" x="800" y="265" width="360" height="60" rx="14"/>
+  <text class="label" x="980" y="290" text-anchor="middle">NotFound</text>
+  <text class="small" x="980" y="311" text-anchor="middle">no record</text>
+  <path class="flow" d="M600,337 L600,371"/>
+  <text class="edge" x="612" y="359">found</text>
+
+  <polygon class="decision" points="600,373 715,415 600,457 485,415"/>
+  <text class="code" x="600" y="420" text-anchor="middle" style="font-variant-ligatures: none">RevokedAt set?</text>
+  <path class="flow alt" d="M715,415 L798,415"/>
+  <text class="edge" x="757" y="407" text-anchor="middle">yes</text>
+  <rect class="fail" x="800" y="385" width="360" height="60" rx="14"/>
+  <text class="label" x="980" y="410" text-anchor="middle">Revoked</text>
+  <text class="small" x="980" y="431" text-anchor="middle">record returned</text>
+  <path class="flow" d="M600,457 L600,491"/>
+  <text class="edge" x="612" y="479">no</text>
+
+  <polygon class="decision" points="600,493 715,535 600,577 485,535"/>
+  <text class="code" x="600" y="540" text-anchor="middle" style="font-variant-ligatures: none">RetiresAt &lt;= now?</text>
+  <path class="flow alt" d="M715,535 L798,535"/>
+  <text class="edge" x="757" y="527" text-anchor="middle">yes</text>
+  <rect class="fail" x="800" y="505" width="360" height="60" rx="14"/>
+  <text class="label" x="980" y="530" text-anchor="middle">Retired</text>
+  <text class="small" x="980" y="551" text-anchor="middle">rotated and its grace window elapsed</text>
+  <path class="flow" d="M600,577 L600,611"/>
+  <text class="edge" x="612" y="599">no</text>
+
+  <polygon class="decision" points="600,613 715,655 600,697 485,655"/>
+  <text class="code" x="600" y="660" text-anchor="middle" style="font-variant-ligatures: none">ExpiresAt &lt;= now?</text>
+  <path class="flow alt" d="M715,655 L798,655"/>
+  <text class="edge" x="757" y="647" text-anchor="middle">yes</text>
+  <rect class="fail" x="800" y="625" width="360" height="60" rx="14"/>
+  <text class="label" x="980" y="650" text-anchor="middle">Expired</text>
+  <text class="small" x="980" y="671" text-anchor="middle">record returned</text>
+  <path class="flow" d="M600,697 L600,731"/>
+  <text class="edge" x="612" y="719">no</text>
+
+  <polygon class="decision" points="600,733 715,775 600,817 485,775"/>
+  <text class="code" x="600" y="773" text-anchor="middle" style="font-variant-ligatures: none">scope held?</text>
+  <text class="small" x="600" y="791" text-anchor="middle">if requiredScope set</text>
+  <path class="flow alt" d="M715,775 L798,775"/>
+  <text class="edge" x="757" y="767" text-anchor="middle">no</text>
+  <rect class="fail" x="800" y="745" width="360" height="60" rx="14"/>
+  <text class="label" x="980" y="770" text-anchor="middle">MissingScope</text>
+  <text class="small" x="980" y="791" text-anchor="middle">record returned</text>
+  <path class="flow" d="M600,817 L600,851"/>
+  <text class="edge" x="612" y="839">yes, or no scope asked</text>
+
+  <rect class="ok" x="485" y="853" width="230" height="92" rx="14"/>
+  <text class="label" x="600" y="881" text-anchor="middle">Valid</text>
+  <text class="small" x="600" y="903" text-anchor="middle">LastUsedAt = now, LastUsedCount++</text>
+  <text class="code" x="600" y="926" text-anchor="middle">IApiKeyStore.UpdateAsync</text>
+
+  <rect class="note" x="800" y="853" width="360" height="92" rx="10"/>
+  <text class="small" x="816" y="881">Every outcome is counted on</text>
+  <text class="code" x="816" y="903">orion.ledger.verifications</text>
+  <text class="small" x="816" y="925">and sent to IApiKeyEventObserver.OnVerified.</text>
+</svg>

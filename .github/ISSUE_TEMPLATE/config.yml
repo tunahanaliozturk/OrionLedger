@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://github.com/tunahanaliozturk/OrionLedger#readme
+    about: The README documents the real behaviour of the OrionLedger packages. Read it before asking "how do I ...".
+  - name: Security vulnerability
+    url: https://github.com/tunahanaliozturk/OrionLedger/blob/main/SECURITY.md
+    about: Do not file a public issue. Report it privately as described in SECURITY.md.
+  - name: Feature reference
+    url: https://github.com/tunahanaliozturk/OrionLedger/blob/main/docs/FEATURES.md
+    about: Every capability and its public API, in detail.

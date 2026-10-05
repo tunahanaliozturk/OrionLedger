@@ -4,8 +4,7 @@
     <RootNamespace>Moongazing.OrionLedger.EntityFrameworkCore</RootNamespace>
     <Description>EF Core reference store for OrionLedger. Implements IApiKeyStore over Entity Framework Core: maps ApiKeyRecord, indexes the token hash as the verification lookup key, persists the mutable lifecycle fields (RevokedAt, LastUsedAt, LastUsedCount, and the rotation timestamps), and applies the last-used increment as an atomic server-side update so concurrent verifications do not lose counts. Provider agnostic; ships FindBySubjectAsync so bulk revoke works out of the box.</Description>
     <PackageTags>api-key;apikey;authentication;ef-core;entity-framework-core;persistence;revocation;orion</PackageTags>
-    <PackageIcon>icon.png</PackageIcon>
-    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageReadmeFile>docs/README.md</PackageReadmeFile>
     <!-- Deliberately NOT IsAotCompatible: EF Core is not trim or NativeAOT safe (the DbContext
          pipeline and the JSON scope converter raise IL2026/IL3050). Asserting AOT support here
          would be a false promise. The pure-abstractions Orion packages can claim it; a runtime EF
@@ -35,12 +34,7 @@
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.0" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.0" />
   </ItemGroup>
-  <ItemGroup Condition="'$(IsPackable)' == 'true'">
-    <!-- Directory.Build.props already packs docs/icon.png to \icon.png for every packable project, so
-         the icon is inherited and must not be re-added. It also packs the repository-root README to
-         \README.md; remove that and pack this package's own README instead so the NuGet page is
-         package specific. -->
-    <None Remove="$(MSBuildProjectDirectory)\..\..\README.md" />
-    <None Include="$(MSBuildProjectDirectory)\README.md" Pack="true" PackagePath="\" Visible="false" />
+  <ItemGroup>
+    <None Include="docs/README.md" Pack="true" PackagePath="docs/" />
   </ItemGroup>
 </Project>

@@ -1,11 +1,16 @@
 <p align="center">
-  <img src="docs/logo.png" alt="OrionLedger" width="150" />
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/logo.png">
+    <img src="docs/icon.png" alt="OrionLedger logo" width="150">
+  </picture>
 </p>
 
 # OrionLedger
 
 [![CI/CD](https://github.com/tunahanaliozturk/OrionLedger/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/tunahanaliozturk/OrionLedger/actions/workflows/ci-cd.yml)
 [![NuGet](https://img.shields.io/nuget/v/OrionLedger.svg)](https://www.nuget.org/packages/OrionLedger/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
+![.NET](https://img.shields.io/badge/.NET-8.0%20%7C%209.0%20%7C%2010.0-purple.svg)
 
 API key lifecycle for .NET. Issue prefixed, high-entropy keys; store only their hash; verify a
 presented key against prefix, hash, expiry, revocation, and scope; revoke keys; and track when each
@@ -32,16 +37,21 @@ Issuance generates a plaintext token once, hashes it, and persists only the reco
 walks a fixed sequence of checks and collapses to a single `ApiKeyStatus`. The plaintext token
 never touches storage.
 
-```
-Issue:   name + scopes -> generate(prefix + 256-bit secret) -> hash -> store record -> return token ONCE
-
-Verify:  token -> prefix check -> hash lookup -> revoked? -> expired? -> scope? -> Valid (stamp last-used)
-                     |               |             |           |          |
-                  Malformed       NotFound      Revoked     Expired   MissingScope
-```
+![OrionLedger issue and verify flow: IssueAsync generates the token, hashes it, stores the record and returns the token once; VerifyAsync checks the prefix, looks the hash up, then checks revocation, retirement, expiry and scope in that order before stamping last-used](docs/diagrams/issue-verify.png)
 
 Every branch except `Malformed` and `NotFound` returns the matched record, so you can log which key
 was rejected and why.
+
+## Packages
+
+![OrionLedger packages: the core serves your app, OrionLedger.AspNetCore verifies keys at the request edge, OrionLedger.EntityFrameworkCore implements IApiKeyStore over a relational database, and OrionLedger.Conformance tests any store](docs/diagrams/overview.png)
+
+| Package | What it is |
+|---------|------------|
+| [`OrionLedger`](https://www.nuget.org/packages/OrionLedger/) | The core: `IApiKeyService` (issue, verify, rotate, revoke), `ApiKeyOptions`, `ApiKeyGenerator` / `ApiKeyHasher`, the `IApiKeyStore` seam with `InMemoryApiKeyStore`, `IApiKeyEventObserver` and `ApiKeyDiagnostics`. |
+| [`OrionLedger.AspNetCore`](https://www.nuget.org/packages/OrionLedger.AspNetCore/) | `AddOrionLedgerApiKey()`: an authentication handler that reads the key from a header, plus `RequireApiKeyScope` / `AddApiKeyScopePolicy` scope policies. |
+| [`OrionLedger.EntityFrameworkCore`](https://www.nuget.org/packages/OrionLedger.EntityFrameworkCore/) | `EfApiKeyStore<TContext>`, `ApiKeyRecordConfiguration` and `OrionLedgerDbContext`, registered with `AddOrionLedgerEntityFrameworkCoreStore<TContext>()`. |
+| [`OrionLedger.Conformance`](https://www.nuget.org/packages/OrionLedger.Conformance/) | `ApiKeyStoreConformanceTests`: an xUnit contract suite for any `IApiKeyStore`. |
 
 ## Features
 
@@ -61,7 +71,8 @@ was rejected and why.
   on the record.
 - **Pluggable storage.** Ships with an in-memory store; implement `IApiKeyStore` over your database
   to persist and share keys. Bulk revoke by subject needs the optional `FindBySubjectAsync` override.
-- **Telemetry and audit.** An OpenTelemetry meter plus a fault-safe lifecycle observer.
+- **Telemetry and audit.** An OpenTelemetry meter with four counters plus a fault-safe lifecycle
+  observer.
 - **Constant-time hash comparison helper** for callers that compare hashes directly.
 - Multi-targets `net8.0`, `net9.0`, `net10.0`; nullable enabled; warnings as errors.
 
@@ -71,6 +82,8 @@ A deeper breakdown lives in [docs/FEATURES.md](docs/FEATURES.md).
 
 ```
 dotnet add package OrionLedger
+dotnet add package OrionLedger.AspNetCore            # optional: ASP.NET Core authentication
+dotnet add package OrionLedger.EntityFrameworkCore   # optional: durable EF Core store
 ```
 
 ## Quick start
@@ -78,6 +91,9 @@ dotnet add package OrionLedger
 Register the service and configure issuance:
 
 ```csharp
+using Moongazing.OrionLedger;
+using Moongazing.OrionLedger.Keys;
+
 builder.Services.AddOrionLedger(o =>
 {
     o.Prefix = "ork_live_";
@@ -147,8 +163,8 @@ can log it.
 
 ### Revocation
 
-Revoke by the record id assigned at issuance. `RevokeAsync` returns `true` when it revoked an active
-key, and `false` if no such key exists or it was already revoked (so the call is idempotent).
+Revoke by the record id assigned at issuance. `RevokeAsync` returns `true` when it revoked the key,
+and `false` if no such key exists or it was already revoked (so the call is idempotent).
 
 ```csharp
 var issued = await keys.IssueAsync("Acme Corp");
@@ -186,6 +202,8 @@ var retiresAt = rotation.Predecessor.RetiresAt;       // when the old token stop
 
 During the grace window both the old and new tokens verify as `Valid`. Once the window elapses the
 old token verifies as `ApiKeyStatus.Retired`.
+
+![OrionLedger key lifecycle: RotateAsync issues a successor and supersedes the old key, which is revoked at once without grace or retires at RetiresAt with grace; RevokeAsync and RevokeAllForSubjectAsync revoke keys and an elapsed ExpiresAt makes a key Expired](docs/diagrams/rotation-lifecycle.png)
 
 ### Last-used tracking
 
@@ -279,13 +297,15 @@ app.MapGet("/orders", () => "ok").RequireAuthorization("orders-read");
 ```
 
 A revoked, expired, or unknown key fails authentication with no principal (the framework returns
-`401`); a valid key that lacks the required scope is forbidden (`403`). See the package README for
-the full set of options and the require-all / require-any helpers.
+`401`); a valid key that lacks the required scope is forbidden (`403`). See the
+[package README](src/Moongazing.OrionLedger.AspNetCore/docs/README.md) for the full set of options
+and the require-all / require-any helpers.
 
 ## Configuration
 
-Configure issuance through `ApiKeyOptions` in the `AddOrionLedger` callback. Options are validated
-when the service is built; an invalid value throws at startup.
+Configure issuance through `ApiKeyOptions` in the `AddOrionLedger` callback. The options are
+validated inside the `AddOrionLedger` call, so an invalid value throws (`ArgumentException` or
+`ArgumentOutOfRangeException`) during service registration.
 
 | Option | Type | Default | Notes |
 |--------|------|---------|-------|
@@ -347,8 +367,9 @@ builder.Services.AddOpenTelemetry()
     .WithMetrics(m => m.AddMeter(ApiKeyDiagnostics.MeterName));
 ```
 
-For an audit trail, register an `IApiKeyEventObserver`; it is notified on issue, verify, and revoke.
-The observer is fault-safe: an exception it throws is swallowed and never blocks the lifecycle
+For an audit trail, register an `IApiKeyEventObserver`; it is notified on issue, verify, revoke, and
+rotate (`OnRotated` is a default interface method, so overriding it is optional). The observer is
+fault-safe: an exception it throws is swallowed and never blocks the lifecycle
 operation, because audit logging must not be load-bearing.
 
 ```csharp
@@ -357,6 +378,7 @@ public sealed class AuditObserver : IApiKeyEventObserver
     public void OnIssued(ApiKeyRecord record) { /* log issue */ }
     public void OnVerified(ApiKeyVerification verification) { /* log every attempt */ }
     public void OnRevoked(ApiKeyRecord record) { /* log revoke */ }
+    public void OnRotated(ApiKeyRecord predecessor, ApiKeyRecord successor) { /* log rotation */ }
 }
 
 builder.Services.AddSingleton<IApiKeyEventObserver, AuditObserver>();
@@ -389,7 +411,8 @@ change between minor versions. Notable changes are recorded in [CHANGELOG.md](CH
 ## Contributing
 
 Issues and pull requests are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) and the
-[Code of Conduct](CODE_OF_CONDUCT.md) before opening one. Direction and ideas under consideration
+[Code of Conduct](CODE_OF_CONDUCT.md) before opening one. Report a vulnerability privately as
+described in [SECURITY.md](SECURITY.md). Direction and ideas under consideration
 are in [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## More from the Orion family
